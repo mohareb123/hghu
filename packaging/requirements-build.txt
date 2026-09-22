@@ -1,0 +1,2 @@
+# Build on Windows x64 with Python 3.12. No runtime Python installation is needed.
+pyinstaller==6.22.3

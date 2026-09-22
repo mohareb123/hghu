@@ -1,0 +1,32 @@
+name: Windows EXE
+on:
+  push:
+    branches:
+      - arena/01a0c983-hghu
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-exe:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+      - name: Build and test portable Windows executable
+        shell: pwsh
+        run: ./packaging/build-windows.ps1
+      - name: Upload executable and verification files
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProtoHunter-windows-x64
+          path: |
+            dist/ProtoHunter.exe
+            dist/README-Windows.md
+            dist/SHA256SUMS.txt
+            dist/LICENSE.txt
+          if-no-files-found: error
+          retention-days: 30

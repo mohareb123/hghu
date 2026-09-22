@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ProtoHunter — Android intelligence</title><link rel="icon" href="icon.svg"><link rel="stylesheet" href="style.css"><script defer src="app.js"></script></head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="/" dir="ltr"><img src="icon.svg" alt="" width="37" height="37"><span>proto<span class="brand-light">hunter</span><small>ANDROID INTELLIGENCE</small></span></a>
+  <div class="workspace-label">مساحة التحليل <span>LOCAL</span></div>
+  <nav aria-label="أقسام النتائج">
+    <button class="nav" data-view="research"><span class="nav-icon">⌕</span> Login → Game <b id="count-research">0</b></button>
+    <button class="nav" data-view="flow"><span class="nav-icon">↪</span> مراجع الاستدعاءات <b id="count-flow">0</b></button>
+    <button class="nav" data-view="coverage"><span class="nav-icon">▤</span> سجل التغطية <b id="count-coverage">0</b></button>
+    <button class="nav active" data-view="endpoints"><span class="nav-icon">⌁</span> السيرفرات والروابط <b id="count-endpoints">0</b></button>
+    <button class="nav" data-view="protocols"><span class="nav-icon">◈</span> البروتوكولات <b id="count-protocols">0</b></button>
+    <button class="nav" data-view="protobuf"><span class="nav-icon">⬡</span> Protobuf وgRPC <b id="count-protobuf">0</b></button>
+    <button class="nav" data-view="smali"><span class="nav-icon">⌘</span> فهرس Smali <b id="count-smali">0</b></button>
+    <button class="nav" data-view="servers"><span class="nav-icon">◎</span> تجميع السيرفرات <b id="count-servers">0</b></button>
+    <button class="nav" data-view="native"><span class="nav-icon">◇</span> Native وIL2CPP <b id="count-native">0</b></button>
+    <button class="nav" data-view="bundles"><span class="nav-icon">⊞</span> الحزم وSplit APK <b id="count-bundles">0</b></button>
+    <button class="nav" data-view="sources"><span class="nav-icon">≡</span> ملفات المصدر <b id="count-sources">0</b></button>
+  </nav>
+  <div class="sidebar-note"><span class="mini-label">EVIDENCE, NOT ASSUMPTIONS</span><p>كل نتيجة مرتبطة بمصدرها.<br>كل مؤشر واضح بدرجة ثقته.</p><span class="small-muted">تحليل ثابت • دون تشغيل التطبيق</span></div>
+  <div class="tool-status"><span class="mini-label">محركات فك التطبيق</span><div>JADX <span id="jadx-status">…</span></div><div>Apktool <span id="apktool-status">…</span></div></div>
+  <div class="sidebar-footer"><i class="dot"></i> المعالجة على هذا الخادم <span>v0.4</span></div>
+</aside>
+<div class="app">
+<header><div class="breadcrumb">مساحة العمل <span>/</span> <strong>تحليل Android</strong></div><div class="header-label"><span class="dot"></span> STATIC ANALYSIS <span class="outline-tag">BETA</span></div></header>
+<main>
+  <div class="page-heading"><div><div class="eyebrow">LOOK INSIDE THE CONNECTION.</div><h1>اكتشف ما وراء التطبيق<span>.</span></h1><p>حزم الألعاب، مكتبات Native، وبروتوكولات الاتصال — من الملف إلى الدليل.</p></div><button id="export" class="button secondary" disabled>↓ تصدير JSON</button></div>
+  <section id="dropzone" class="upload" aria-label="رفع ملف للتحليل">
+    <div class="upload-icon">↥</div><div class="upload-copy"><h2 id="upload-title">ابدأ من ملف. اتبع الدليل.</h2><p id="upload-description">اسحب XAPK أو APK أو مكتبة SO. للملفات المتعددة، ارفع ZIP يجمعها.</p><div class="file-types" dir="ltr">XAPK <span>·</span> APK <span>·</span> SO <span>·</span> IL2CPP <span>·</span> PROTO <span id="upload-limit" class="upload-limit">MAX 2 GiB</span></div></div>
+    <div class="upload-actions"><input type="file" id="file-input" hidden accept=".apk,.aab,.dex,.zip,.jar,.smali,.java,.kt,.proto,.pb,.desc,.protoset,.bin,.so,.xml,.json,.txt,.xapk,.apks,.obb,.dat,.arsc"><button id="choose" class="button primary">+ اختر ملفًا</button><button id="demo" class="text-button">جرّب مثالًا تجريبيًا ↗</button></div>
+  </section>
+  <div class="analysis-options"><span><i class="dot"></i> لا يتم تشغيل الملف أو الاتصال بالسيرفرات المستخرجة</span><label for="profile">وضع التحليل <select id="profile"><option value="games" selected>ألعاب وحزم كبيرة · 2 GiB</option><option value="standard">قياسي · 128 MiB</option></select></label><label for="decoder">فك الكود <select id="decoder"><option value="none">تحليل مباشر · بدون أدوات خارجية</option><option value="auto" disabled>JADX + Apktool (غير مفعّل)</option></select></label></div>
+  <div id="notification" class="notification" role="status" aria-live="polite" hidden></div>
+  <section class="stats" aria-label="ملخص التحليل">
+    <div class="stat"><div class="stat-top">عناوين فريدة <span>⌁</span></div><strong id="stat-endpoints">—</strong><small>روابط، خوادم ومسارات</small></div>
+    <div class="stat"><div class="stat-top">بروتوكولات مرصودة <span>◈</span></div><strong id="stat-protocols">—</strong><small>مخططات URI ومؤشرات الكود</small></div>
+    <div class="stat"><div class="stat-top">نتائج Protobuf <span>⬡</span></div><strong id="stat-protobuf">—</strong><small>مخططات، descriptors وgRPC</small></div>
+    <div class="stat"><div class="stat-top">كلاسات Smali <span>⌘</span></div><strong id="stat-smali">—</strong><small>حقول، دوال واستدعاءات</small></div>
+  </section>
+  <div class="game-summary"><span>GAME PACKAGE INSPECTION</span><span>Native / IL2CPP <b id="stat-native">—</b></span><span>حزم وبيانات وصفية <b id="stat-bundles">—</b></span><span>مضيفون فريدون <b id="stat-servers">—</b></span></div>
+  <section id="research-overview" class="research-overview" hidden>
+    <div class="research-heading"><span>FREE FIRE · USER-SPECIFIED RESEARCH PLAN</span><strong>من تسجيل الدخول إلى رسائل اللعبة</strong><small>الأسماء أهداف بحث، وليست schema مؤكدة. «لم يُرصد» لا تعني «غير موجود».</small></div>
+    <div id="research-stages" class="research-stages"></div>
+    <div id="coverage-status" class="coverage-status"></div>
+    <details class="target-checklist"><summary>قائمة الأهداف المطلوبة وحالة رصدها</summary><div id="target-checklist"></div></details>
+  </section>
+  <section class="results">
+    <div class="results-heading"><div><span class="section-kicker">EXTRACTED INTELLIGENCE</span><h2 id="view-title">السيرفرات والروابط <span id="result-count">0</span></h2></div><span id="report-meta">بانتظار ملف للتحليل</span></div>
+    <div class="toolbar"><div class="search-wrap"><span>⌕</span><input id="search" type="search" placeholder="ابحث في النتائج أو ملفات المصدر…" aria-label="البحث في النتائج"></div><select id="stage-filter" aria-label="مرحلة البحث" hidden><option value="all">كل المراحل</option><option value="login">Login والإعدادات</option><option value="session">بيانات الجلسة</option><option value="transport">TCP / الاتصال</option><option value="messages">رسائل اللعبة</option><option value="security">التشفير والمصادقة</option><option value="serialization">التسلسل وProtobuf</option><option value="discovery">اكتشاف الشبكات</option></select><select id="relevance-filter" aria-label="فلتر الأهمية"><option value="all">كل الأدلة</option><option value="focused">ذو صلة بخطة البحث</option></select><select id="confidence" aria-label="تصفية درجة الثقة"><option value="all">كل درجات الثقة</option><option value="high">عالية</option><option value="medium">متوسطة</option><option value="low">مؤشر محتمل</option></select></div>
+    <div class="results-body"><div class="findings-pane"><div class="table-head"><span>القيمة / الدليل</span><span>الثقة</span></div><div id="findings"><div class="empty"><div class="empty-symbol">⌁</div><h3>التفاصيل تبدأ هنا</h3><p>ارفع ملفًا لاستخراج مؤشرات الاتصال.<br>أو جرّب المثال لاستكشاف طريقة عرض النتائج.</p><div class="empty-chips"><span>https://</span><span>gRPC</span><span>.smali</span></div></div></div><div id="pagination" class="pagination" hidden><button id="prev" class="text-button">→ السابق</button><span id="page-label"></span><button id="next" class="text-button">التالي ←</button></div></div>
+    <aside class="detail-pane"><div class="detail-heading"><span>دليل النتيجة</span><button id="copy" class="text-button" disabled>نسخ</button></div><div id="detail"><div class="detail-empty"><span>◎</span><p>اختر نتيجة لفحص مصدرها<br>وتفاصيلها التقنية.</p></div></div></aside></div>
+  </section>
+  <details id="warnings-box" class="warnings" hidden><summary id="warnings-title">ملاحظات التحليل</summary><ul id="warnings"></ul></details>
+  <footer><span>ProtoHunter / تحليل محلي مبني على الأدلة</span><span>المؤشر الثابت لا يثبت نشاط السيرفر. حلّل فقط ما تملك أو لديك إذن بفحصه.</span></footer>
+</main></div>
+</body></html>
