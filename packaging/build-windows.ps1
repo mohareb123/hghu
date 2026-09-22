@@ -11,7 +11,7 @@ function Invoke-Checked {
     & $Program @Arguments 2>&1 | Tee-Object -Variable CommandLog
     if ($LASTEXITCODE -ne 0) {
         $Code = $LASTEXITCODE
-        $Details = ($CommandLog | Select-Object -Last 70 | Out-String).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+        $Details = ($CommandLog | Select-Object -Last 35 | Out-String).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
         if ($env:GITHUB_ACTIONS) { Write-Host "::error::$Details" }
         throw "$Program failed ($Code)"
     }

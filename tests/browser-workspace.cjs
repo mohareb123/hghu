@@ -20,7 +20,8 @@ const {chromium}=require('playwright'), {spawn}=require('node:child_process'), p
     await page.waitForFunction(()=>document.querySelector('#ws-unit').options.length===1 && !document.querySelector('#demo').disabled);
     async function run(operation){
       await page.click(`[data-operation="${operation}"]`);
-      await page.waitForFunction(()=>document.querySelector('#ws-message').textContent.startsWith('اكتملت العملية') && !document.querySelector('#demo').disabled);
+      try{await page.waitForFunction(()=>document.querySelector('#ws-message').textContent.startsWith('اكتملت العملية') && !document.querySelector('#demo').disabled);}
+      catch(error){throw new Error(operation+': '+await page.locator('#ws-message').textContent()+' / '+await page.locator('#ws-log').textContent(),{cause:error});}
     }
     await run('apktool');
     await page.locator('.ws-file').filter({hasText:'Example.smali'}).click();

@@ -127,8 +127,8 @@ class ProjectStore:
     def locked(self, project_id):
         # OS lock releases on process exit; also coordinates CLI and desktop instances.
         with self.safe(project_id, '.lock').open('a+b') as stream:
-            stream.seek(0)
-            if not stream.read(1):
+            # Reading a locked byte itself fails on Windows. Inspect file size instead.
+            if os.fstat(stream.fileno()).st_size == 0:
                 stream.write(b'0'); stream.flush()
             stream.seek(0)
             try:
