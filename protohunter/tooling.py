@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from .bundle import metadata as bundle_metadata, paths as bundle_paths
 
 
 def app_directory():
@@ -32,7 +33,7 @@ class ToolConfig:
         base = app_directory()
         jar = self.apktool_jar or os.environ.get('PROTOHUNTER_APKTOOL_JAR', '')
         if not jar:
-            jar = next((str(p) for p in (base / 'apktool.jar', base / 'tools' / 'apktool.jar') if p.is_file()), '')
+            jar = next((str(p) for p in (base / 'tools' / 'apktool.jar', base / 'apktool.jar') if p.is_file()), '')
         java = self.java or os.environ.get('PROTOHUNTER_JAVA', '')
         if not java:
             candidates = [base / 'tools' / 'java' / 'bin' / 'java.exe', base / 'tools' / 'jre' / 'bin' / 'java.exe']
@@ -41,9 +42,12 @@ class ToolConfig:
             java = next((str(p) for p in candidates if p.is_file()), '') or shutil.which('java') or ''
         else:
             java = shutil.which(java) or java
-        return ToolConfig(str(Path(jar).expanduser().resolve()) if jar else '', java,
-                          **{key: getattr(self, key) or os.environ.get('PROTOHUNTER_' + key.upper(), '')
-                             for key in ('jadx', 'il2cpp', 'dotnet', 'apksigner', 'zipalign')})
+        extra = {key: getattr(self, key) or os.environ.get('PROTOHUNTER_' + key.upper(), '')
+                 for key in ('jadx', 'il2cpp', 'dotnet', 'apksigner', 'zipalign')}
+        for key, candidate in bundle_paths(base).items():
+            if key in extra and not extra[key] and candidate.exists():
+                extra[key] = str(candidate.resolve())
+        return ToolConfig(str(Path(jar).expanduser().resolve()) if jar else '', java, **extra)
 
     def status(self, private=False):
         config = self.resolve()
@@ -59,6 +63,11 @@ class ToolConfig:
                 result[tool] = bool(self.command(tool))
             except ValueError:
                 result[tool] = False
+        manifest = bundle_metadata(app_directory())
+        result['bundle'] = {'present': bool(manifest), 'versions': manifest.get('versions', {}),
+                            'ready': bool(manifest) and all(result.get(k) for k in ('java', 'jadx', 'apktool', 'il2cpp')) and all(
+                                getattr(config, k) and Path(getattr(config, k)).resolve() == v.resolve()
+                                for k, v in bundle_paths(app_directory()).items())}
         if private:
             result.update(apktool_jar=config.apktool_jar, java_path=config.java,
                           **{key + '_path': getattr(config, key) for key in ('jadx', 'il2cpp', 'dotnet', 'apksigner', 'zipalign')})
@@ -96,7 +105,7 @@ class ToolConfig:
             return [dotnet, str(path)]
         return [str(path)]
 
-    def save(self, path=None):
+    def save(self, path=None, prefer_bundled=False):
         # Called only by the explicit trusted desktop settings endpoint.
         resolved = self.resolve()
         if self.apktool_jar and (not Path(self.apktool_jar).is_file() or Path(self.apktool_jar).suffix.lower() != '.jar'):
@@ -111,7 +120,7 @@ class ToolConfig:
         destination = path or settings_path()
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_suffix('.tmp')
-        temporary.write_text(json.dumps(asdict(self)), encoding='utf-8')
+        temporary.write_text(json.dumps({**asdict(self), 'prefer_bundled': prefer_bundled}), encoding='utf-8')
         temporary.replace(destination)
 
     @classmethod
@@ -120,6 +129,11 @@ class ToolConfig:
             data = json.loads((path or settings_path()).read_text(encoding='utf-8'))
             if not isinstance(data, dict):
                 return cls()
+            # Migrate old absolute 0.6 paths automatically in the all-in-one bundle.
+            # Advanced manual saves explicitly opt out; CLI flags can always override.
+            if path is None and bundle_metadata(app_directory()) and data.get('prefer_bundled', True):
+                for key in ('apktool_jar', 'java', 'jadx', 'il2cpp', 'dotnet'):
+                    data[key] = ''
             return cls(**{k: str(data.get(k, '')) for k in cls.__dataclass_fields__})
         except (OSError, ValueError, TypeError):
             return cls()

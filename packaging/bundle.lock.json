@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "versions": {
+    "JADX": "1.5.3",
+    "Apktool": "2.12.1",
+    "Il2CppDumper": "4741d46 (net8 self-contained)",
+    "Java": "Temurin 21.0.12.1+1 JRE",
+    ".NET": "8.0.31"
+  },
+  "dotnet_sdk": "8.0.425",
+  "dotnet_runtime": "8.0.31",
+  "assets": {
+    "apktool": {
+      "url": "https://github.com/iBotPeaches/Apktool/releases/download/v2.12.1/apktool_2.12.1.jar",
+      "sha256": "66cf4524a4a45a7f56567d08b2c9b6ec237bcdd78cee69fd4a59c8a0243aeafa",
+      "filename": "apktool_2.12.1.jar"
+    },
+    "jadx": {
+      "url": "https://github.com/skylot/jadx/releases/download/v1.5.3/jadx-1.5.3.zip",
+      "sha256": "8280f3799c0273fe797a2bcd90258c943e451fd195f13d05400de5e6451d15ec",
+      "filename": "jadx-1.5.3.zip"
+    },
+    "java": {
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_x64_windows_hotspot_21.0.12.1_1.zip",
+      "sha256": "d35f31e712f0fcf6ac5a093edc90204fbff22f720ba3950bd09d331d5e621636",
+      "filename": "temurin21-jre-win-x64.zip"
+    },
+    "java_source": {
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk-sources_21.0.12.1_1.tar.gz",
+      "sha256": "573057d03584ae793fb7ec9a14c76d826d9187a53efeefd99da47403a5308234",
+      "filename": "OpenJDK21U-jdk-sources_21.0.12.1_1.tar.gz"
+    },
+    "il2cpp_source": {
+      "url": "https://github.com/Perfare/Il2CppDumper/archive/4741d46ba9cd6159c5d853eb9d6fc48b4bfa2b1a.zip",
+      "sha256": "10f886df55da0620fe188aa027509f6072b8710703c2b8a701dac0c8329192bf",
+      "filename": "Il2CppDumper-4741d46-source.zip"
+    }
+  },
+  "license_sources": {
+    "JADX-LICENSE.txt": "https://github.com/skylot/jadx/blob/v1.5.3/LICENSE",
+    "JADX-NOTICE.txt": "https://github.com/skylot/jadx/blob/v1.5.3/NOTICE",
+    "Apktool-LICENSE.txt": "https://github.com/iBotPeaches/Apktool/blob/v2.12.1/LICENSE.md",
+    "Mono.Cecil-LICENSE.txt": "https://github.com/jbevain/cecil/blob/0.11.4/LICENSE.txt",
+    "dotnet-LICENSE.txt": "https://github.com/dotnet/runtime/blob/v8.0.31/LICENSE.TXT",
+    "dotnet-NOTICES.txt": "https://github.com/dotnet/runtime/blob/v8.0.31/THIRD-PARTY-NOTICES.TXT"
+  }
+}

@@ -5,7 +5,8 @@ import sys
 
 from . import __version__
 from .analyzer import analyze
-from .tooling import ToolConfig
+from .tooling import ToolConfig, app_directory
+from .bundle import verify as verify_bundle
 from .projects import ProjectStore
 import os
 
@@ -25,6 +26,7 @@ def main(argv=None):
     web.add_argument("--port", type=int, default=8765)
     web.add_argument("--allow-decoders", action="store_true", help="Permit external JADX/Apktool on uploads")
     doctor = sub.add_parser("doctor", help="Check optional decoders")
+    doctor.add_argument("--verify-bundle", action="store_true", help="Verify bundled tool hashes; can take several seconds")
     web.add_argument("--desktop-tools", action="store_true", help="Enable trusted loopback-only tool settings and Windows local picker")
     workspace = sub.add_parser("workspace", help="Persistent JADX / Apktool / IL2CPP projects")
     workspace.add_argument("--root", type=Path, help="Workspace directory; defaults to local app data")
@@ -53,7 +55,12 @@ def main(argv=None):
             from .web import serve
             serve(args.host, args.port, args.allow_decoders, tool_config=config, desktop_tools=args.desktop_tools)
         elif args.command == "doctor":
-            print(json.dumps({"python": sys.version.split()[0], "optional_decoders": config.status(private=True)}, indent=2))
+            result = {"python": sys.version.split()[0], "optional_decoders": config.status(private=True)}
+            if args.verify_bundle:
+                result['integrity'] = verify_bundle(app_directory())
+            print(json.dumps(result, indent=2))
+            if args.verify_bundle and not result['integrity']['ok']:
+                return 2
         elif args.command == "workspace":
             store = ProjectStore(args.root)
             if args.action == "list":

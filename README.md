@@ -1,6 +1,6 @@
 # ProtoHunter
 
-**مساحة محلية لتحليل حزم ألعاب Android وNative/IL2CPP وProtobuf وSmali — v0.6.0.**
+**مساحة محلية لتحليل حزم ألعاب Android وNative/IL2CPP وProtobuf وSmali — v0.7.0.**
 
 أداة أولية عملية (MVP) مستوحاة من أسلوب استكشاف الملفات في [JADX](https://github.com/skylot/jadx)، وليست بديلًا كاملًا عنه أو محرك decompiler جديدًا. تجمع مؤشرات الاتصال وتربطها بالدليل، وتستخدم JADX وApktool اختياريًا لفك التطبيق.
 
@@ -8,6 +8,20 @@
 - CLI للتكامل مع سير عمل التحليل.
 - لا يتم تشغيل التطبيق، أو الاتصال بالعناوين المستخرجة، أو إرسال الملفات لخدمات تحليل خارجية.
 - Python **3.10+**، دون مكتبات تشغيل إلزامية من طرف ثالث.
+
+## الحزمة الكاملة الجاهزة — جديد في 0.7
+
+تحميل **ProtoHunter-Complete-windows-x64** يضم الآن المحركات الحقيقية: JADX 1.5.3، Apktool 2.12.1، وIl2CppDumper مع .NET 8 محلية، بالإضافة إلى Temurin Java 21. لا تثبيت Java/.NET ولا PATH ولا تنزيل عند أول تشغيل؛ فك الضغط وشغّل EXE مع إبقاء مجلد `tools` بجواره.
+
+هي حزمة portable موحّدة وليست إعادة كتابة المحركات أو ملف EXE منفردًا ضخمًا يعيد استخراج الأدوات كل مرة. التطبيق يكتشف الأدوات المرفقة تلقائيًا ويهاجر مسارات النسخة القديمة. تعديل المسارات ما زال متاحًا كخيار متقدم. [دليل الحزمة](packaging/README-Complete.md) و[تراخيصها ومصادرها](packaging/THIRD-PARTY.md).
+
+- التنزيلات مثبتة الإصدار ومتحقق من SHA-256 قبل البناء: `packaging/bundle.lock.json`.
+- `ProtoHunter.exe doctor --verify-bundle` يتحقق من بصمات الملفات بعد فك الضغط.
+- CI يشغّل **JADX/Apktool الحقيقيين** على APK صناعي ويبني/يفك/يعيد بناءه، ويختبر بدء Il2CppDumper الحقيقي ورفض metadata غير مدعومة، مع إبعاد Java/dotnet من PATH ونقل الحزمة إلى مسار جديد.
+- مصادر OpenJDK المقابلة وIl2CppDumper تُتاح في artifact منفصل **ProtoHunter-third-party-sources** من البناء نفسه، بنفس مدة الاحتفاظ؛ ليست مطلوبة للتشغيل.
+- أدوات توقيع Android SDK ومفتاحك ليست ضمن المحركات الثلاثة المرفقة. لا ضمان لفك كل حماية أو استرجاع أجسام C# أو نجاح تشغيل APK معدل.
+
+البناء الكامل على Windows: `packaging/build-windows.ps1` ثم `python packaging/bundle_windows.py` ثم `python packaging/smoke_bundle.py dist/ProtoHunter-Complete`، مع .NET SDK 8.0.425 في بيئة البناء فقط. السكربت الأول ينتج EXE منفردًا؛ الثاني يجهّز التوزيعة الكاملة. لا تحفظ ملفات الأدوات أو المصادر الكبيرة في Git.
 
 ## استوديو JADX + Apktool + Il2CppDumper — جديد في 0.6
 
@@ -48,7 +62,7 @@ API الواجهة: `POST /api/jobs?name=game.xapk&profile=games&scan_mode=fast`
 .\ProtoHunter.exe doctor
 ```
 
-JADX وApktool وJava **اختيارية وغير مضمّنة**. الملف غير موقّع رقميًا. تعليمات التشغيل والتحقق من SHA-256 في [README Windows](packaging/README-Windows.md).
+في EXE المنفرد/نسخة المصدر تحتاج إعداد الأدوات؛ **الحزمة الكاملة 0.7 تتضمن المحركات وبيئات التشغيل**. الملف غير موقّع رقميًا. تعليمات التشغيل والتحقق من SHA-256 في [README Windows](packaging/README-Windows.md).
 
 ### بناء EXE من المصدر
 
@@ -60,7 +74,7 @@ JADX وApktool وJava **اختيارية وغير مضمّنة**. الملف غ�
 
 النتيجة في `dist/ProtoHunter.exe` ومعها `SHA256SUMS.txt`. السكربت ينشئ بيئة بناء مستقلة، ويشغّل الاختبارات، ثم يبني نسخة one-file ويختبر الملف التنفيذي نفسه عبر CLI وخادم الواجهة.
 
-يوجد workflow باسم **Windows EXE** يبني على `windows-2022` ويرفع artifact باسم `ProtoHunter-windows-x64`. يتضمن EXE وتعليمات التشغيل والبصمة والترخيص. ملفات البناء التنفيذية ليست جزءًا من Git؛ الـartifact محفوظ لمدة 30 يومًا، ويمكن إعادة البناء من المصدر.
+يوجد workflow باسم **Windows EXE** يبني على `windows-2022` ويرفع artifact باسم `ProtoHunter-Complete-windows-x64`. يتضمن EXE وتعليمات التشغيل والبصمة والترخيص. ملفات البناء التنفيذية ليست جزءًا من Git؛ الـartifact محفوظ لمدة 30 يومًا، ويمكن إعادة البناء من المصدر.
 
 ## خطة Login → Session → Game — جديد في 0.3
 

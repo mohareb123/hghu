@@ -58,7 +58,7 @@ def main():
     if os.name != 'nt' or executable.read_bytes()[:2] != b'MZ':
         raise RuntimeError('This smoke test requires an actual Windows PE executable on Windows')
     version = subprocess.run([str(executable), '--version'], capture_output=True, text=True, timeout=60, check=True)
-    assert version.stdout.strip() == '0.6.0', version.stdout
+    assert version.stdout.strip() == '0.7.0', version.stdout
     with tempfile.TemporaryDirectory(prefix='protohunter-exe-test-') as tmp:
         source = Path(tmp, 'sample.smali')
         source.write_text('.class public LN2/c;\n.method public login()V\n const-string v0, "CSMajorLoginReq"\n const-string v1, "https://login.example.invalid/"\n return-void\n.end method\n', encoding='utf-8')
@@ -97,7 +97,7 @@ def main():
             assert b'renderResearchOverview' in response.read()
         with urlopen(url + 'api/status', timeout=15) as response:
             status = json.load(response)
-            assert status['version'] == '0.6.0'
+            assert status['version'] == '0.7.0'
             assert status['desktop_tools'] and status['native_picker'] and status['config_token']
             assert status['allow_decoders']
         with urlopen(url + 'workspace.js', timeout=15) as response:

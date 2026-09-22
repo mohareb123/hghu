@@ -24,7 +24,10 @@ def main(argv=None):
             print(f"ProtoHunter {__version__} - local Android research", flush=True)
             print(f"Open: {url}", flush=True)
             print("Keep this window open while analyzing. Press Ctrl+C or close it to stop.", flush=True)
-            print("JADX/Apktool are optional external tools, not bundled with this executable.", flush=True)
+            if server.tool_config.status().get('bundle', {}).get('ready'):
+                print("Bundled JADX, Apktool, Il2CppDumper and runtimes are ready. Keep the tools folder beside this EXE.", flush=True)
+            else:
+                print("Standalone/source mode: configure tools, or use the complete offline Windows bundle.", flush=True)
             timer = None
             if os.environ.get("PROTOHUNTER_NO_BROWSER") != "1":
                 def open_browser():

@@ -20,18 +20,30 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.425'
       - name: Build and test portable Windows executable
         shell: pwsh
         run: ./packaging/build-windows.ps1
-      - name: Upload executable and verification files
+      - name: Assemble pinned engines and offline runtimes
+        shell: pwsh
+        run: ./.venv-build/Scripts/python.exe packaging/bundle_windows.py
+      - name: Exercise real bundled tools without host runtimes on PATH
+        shell: pwsh
+        run: ./.venv-build/Scripts/python.exe packaging/smoke_bundle.py dist/ProtoHunter-Complete
+      - name: Upload matching third-party sources
         uses: actions/upload-artifact@v4
         with:
-          name: ProtoHunter-windows-x64
-          path: |
-            dist/ProtoHunter.exe
-            dist/README-Windows.md
-            dist/workspaces.md
-            dist/SHA256SUMS.txt
-            dist/LICENSE.txt
+          name: ProtoHunter-third-party-sources
+          path: dist/ProtoHunter-Sources/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload complete standalone Windows bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProtoHunter-Complete-windows-x64
+          path: dist/ProtoHunter-Complete/
           if-no-files-found: error
           retention-days: 30

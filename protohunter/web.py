@@ -238,8 +238,15 @@ class Handler(BaseHTTPRequestHandler):
                 if path == '/api/tools':
                     if not all(isinstance(body.get(key, ''), str) for key in ToolConfig.__dataclass_fields__):
                         raise ValueError('Tool paths must be strings')
-                    config = ToolConfig(**{key: body.get(key, '') for key in ToolConfig.__dataclass_fields__})
-                    config.save()
+                    if 'use_bundled' in body and not isinstance(body['use_bundled'], bool):
+                        raise ValueError('use_bundled must be a boolean')
+                    prefer_bundled = body.get('use_bundled', False)
+                    values = {key: body.get(key, '') for key in ToolConfig.__dataclass_fields__}
+                    if prefer_bundled:
+                        for key in ('apktool_jar', 'java', 'jadx', 'il2cpp', 'dotnet'):
+                            values[key] = ''
+                    config = ToolConfig(**values)
+                    config.save(prefer_bundled=prefer_bundled)
                     self.server.tool_config = config
                     result = {'tools': config.status(private=True), 'checks': config.probe()}
                 elif path == '/api/choose-tool':

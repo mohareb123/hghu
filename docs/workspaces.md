@@ -1,5 +1,7 @@
 # ProtoHunter Studio 0.6 — دمج عملي، وليس إعادة كتابة المحركات
 
+**تحديث 0.7:** الحزمة الكاملة تضم المحركات الثلاثة وJava و.NET وتكتشفها تلقائيًا؛ راجع `README-FIRST.md` داخل التحميل. التوقيع عبر SDK ما زال اختياريًا وغير مرفق. إعداد المسارات أدناه للنسخة المصدرية أو للتجاوز اليدوي.
+
 هذا إصدار أول لمساحة مشاريع توحّد **JADX / Apktool / Il2CppDumper** وتضيف دورة تعديل وبناء وتوقيع. لا يدّعي استنساخ كل خصائص واجهات الأدوات الثلاث، ولا فك أي حماية أو استرجاع كل الكود.
 
 ## ما تم تنفيذه
@@ -22,7 +24,7 @@
 - **التوقيع:** اختر `zipalign.exe` ويفضّل `lib/apksigner.jar` من Android SDK Build Tools حديثة تدعم `zipalign -P 16`.
 - اضغط حفظ وفحص. فحص النسخ يشغّل Java/Apktool/JADX فقط؛ Il2CppDumper لا يُشغّل دون مدخلات لأنه ليس له أمر version-only مماثل. ظهور المسار متاحًا لا يثبت توافقه مع لعبتك.
 
-المحركات وJava و.NET وAndroid SDK **غير مضمّنة أو محمّلة تلقائيًا**. استخدم التوزيعات الرسمية الموثوقة؛ كل أداة وترخيصها مستقلان:
+في إصدار المصدر/EXE المنفرد لا تُرفق المحركات. **الحزمة الكاملة 0.7 تضم JADX وApktool وIl2CppDumper وJava و.NET دون تنزيل وقت التشغيل**؛ Android SDK غير مرفقة. استخدم التوزيعات الرسمية الموثوقة؛ كل أداة وترخيصها مستقلان:
 [JADX](https://github.com/skylot/jadx)، [Apktool CLI](https://apktool.org/docs/cli-parameters/)، [Il2CppDumper](https://github.com/Perfare/Il2CppDumper)، [apksigner](https://developer.android.com/tools/apksigner)، [zipalign](https://developer.android.com/tools/zipalign).
 
 ## دورة العمل في الواجهة

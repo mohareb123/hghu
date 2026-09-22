@@ -19,7 +19,7 @@ function notice(text, error = false) {
 }
 function setBusy(value) {
   busy = value;
-  for(const id of ['choose','demo','decoder','profile','scan-mode','open-local','save-tools','pick-jar','pick-java','pick-jadx','pick-il2cpp','pick-dotnet','pick-apksigner','pick-zipalign']) $(id).disabled=value;
+  for(const id of ['choose','demo','decoder','profile','scan-mode','open-local','save-tools','pick-jar','pick-java','pick-jadx','pick-il2cpp','pick-dotnet','pick-apksigner','pick-zipalign','bundled-tools']) $(id).disabled=value;
   $('cancel-job').disabled=!value && !activeJob;
   $('resume-job').hidden=value || !activeJob;
   $('dropzone').classList.toggle('busy', value);
@@ -274,6 +274,9 @@ async function desktopRequest(path,body){
 }
 function applyStatus(status){
   serverStatus=status;desktopToken=status.config_token;
+  const bundle=status.tools.bundle;
+  $('bundled-tools').hidden=!status.desktop_tools || !bundle?.present;
+  $('bundle-status').textContent=bundle?.ready ? 'المحركات الثلاثة وبيئات التشغيل جاهزة من الحزمة — لا يلزم تثبيت إضافي. ' + Object.entries(bundle.versions).map(([k,v])=>k+': '+v).join(' · ') : bundle?.present ? 'الحزمة موجودة لكن هناك محركات غير جاهزة أو مسارات مخصصة. استعد المحركات المرفقة أو تحقق من الملفات.' : 'نسخة بدون حزمة محركات: استخدم التحميل الكامل أو حدّد المسارات يدويًا.';
   for(const tool of ['jadx','apktool','java']) $(tool+'-status').textContent=status.tools[tool]?'المسار متاح':'غير موجود';
   if(status.tools.apktool_jar_found && !status.tools.java) $('apktool-status').textContent='JAR يحتاج Java';
   for(const option of $('decoder').options){
@@ -293,6 +296,13 @@ for(const [id,kind,target] of [['pick-jar','apktool','apktool-path'],['pick-java
   setBusy(true);
   try{const choice=await desktopRequest('/api/choose-tool',{kind});if(choice.path)$(target).value=choice.path;}
   catch(error){$('tool-result').textContent=error.message;}finally{setBusy(false);}
+});
+$('bundled-tools').addEventListener('click',async()=>{
+  setBusy(true);
+  try{
+    await desktopRequest('/api/tools',{use_bundled:true,apksigner:$('apksigner-path').value,zipalign:$('zipalign-path').value});
+    applyStatus(await responseJSON(await fetch('/api/status')));notice('تمت استعادة الاكتشاف التلقائي للمحركات المرفقة.');
+  }catch(error){$('tool-result').textContent=error.message;}finally{setBusy(false);}
 });
 $('save-tools').addEventListener('click',async()=>{
   setBusy(true);$('tool-result').textContent='فحص Java وApktool وJADX…';

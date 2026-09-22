@@ -1,4 +1,6 @@
-# ProtoHunter 0.6 — Windows x64
+# ProtoHunter 0.7 — Windows x64
+
+> هذا دليل EXE المنفرد للمطورين. للمستخدم استخدم حزمة **ProtoHunter-Complete-windows-x64** المرفقة بالمحركات وبيئات التشغيل، واقرأ `README-FIRST.md`؛ لا تحتاج إعداد المسارات فيها.
 
 ## التشغيل
 
