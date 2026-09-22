@@ -257,6 +257,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     chosen = choose_file('input')
                     if not chosen:
+                        self.server.analysis_lock.release(); owned = False
                         self.respond(200, {'cancelled': True}); return
                     target = Path(chosen)
                     if target.suffix.lower() not in ALLOWED or target.stat().st_size > profile_limits(options['profile'])['input']:
@@ -290,8 +291,12 @@ class Handler(BaseHTTPRequestHandler):
             self.server.analysis_lock.release(); owned = False
             self.respond(200, result)
         except (ValueError, OSError) as exc:
+            if owned and temporary is None:
+                self.server.analysis_lock.release(); owned = False
             self.respond(400, {'error': str(exc)})
         except Exception:
+            if owned and temporary is None:
+                self.server.analysis_lock.release(); owned = False
             self.respond(500, {'error': 'Request failed. Check the input or use CLI diagnostics.'})
         finally:
             try:

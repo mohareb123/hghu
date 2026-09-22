@@ -29,6 +29,7 @@ def handle(handler):
             if action == 'create':
                 selected = choose_file('input')
                 if not selected:
+                    handler.server.analysis_lock.release(); owned = False
                     handler.respond(200, {'cancelled': True}); return
                 def task(**callbacks):
                     return store.create(selected, **callbacks)
@@ -83,10 +84,15 @@ def handle(handler):
             result = {'opened': True}
         else:
             raise ValueError('Unknown workspace action')
+        handler.server.analysis_lock.release(); owned = False
         handler.respond(200, result)
     except (OSError, ValueError, KeyError) as exc:
+        if owned:
+            handler.server.analysis_lock.release(); owned = False
         handler.respond(400, {'error': str(exc)})
     except Exception:
+        if owned:
+            handler.server.analysis_lock.release(); owned = False
         handler.respond(500, {'error': 'Workspace action failed; check the selected project and tool configuration'})
     finally:
         if owned:
