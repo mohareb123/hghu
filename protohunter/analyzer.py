@@ -18,9 +18,11 @@ import zipfile
 from . import __version__
 from .formats import dex_strings, descriptors, embedded_descriptors
 from .native import elf_info, il2cpp_header, il2cpp_literals
-from .research import Research
+from .research import Research, TARGETS
 from .coverage import Coverage, sha256_buffer
 from .android import resource_strings
+from .tooling import ToolConfig
+from .runtime import AnalysisCancelled, binary_strings, stop_decoder
 
 MAX_INPUT = 128 * 1024 * 1024
 MAX_FILE = 16 * 1024 * 1024
@@ -40,6 +42,10 @@ def profile_limits(profile):
                 "expanded": 4 * 1024**3, "files": 40000, "depth": 3}
     raise ValueError("Unknown analysis profile")
 
+
+MEDIA_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp3", ".wav", ".ogg", ".mp4", ".webm", ".ttf", ".otf", ".woff", ".woff2", ".ktx", ".ktx2", ".astc"}
+SHORT_MARKERS = tuple({x.lower().encode() for terms in TARGETS.values() for x in terms if len(x) < 6} | {b"grpc", b"quic"})
+SMALL_MEMBER = 2 * 1024**2
 
 TEXT_EXT = {".smali", ".java", ".kt", ".proto", ".xml", ".json", ".txt", ".yaml", ".yml",
             ".properties", ".conf", ".cfg", ".ini", ".js", ".html", ".csv", ".gradle"}
@@ -65,12 +71,24 @@ PROTOCOLS = {
 COMPILED_PROTOCOLS = {name: re.compile(pattern) for name, pattern in PROTOCOLS.items()}
 
 
-def tools():
-    return {name: shutil.which(name) is not None for name in ("jadx", "apktool")}
+def tools(config=None):
+    return (config or ToolConfig()).status()
 
 
 class Analyzer:
-    def __init__(self, profile="standard"):
+    def __init__(self, profile="standard", scan_mode="deep", tool_config=None, progress=None, cancel=None, input_digest=None):
+        if scan_mode not in {"fast", "deep"}:
+            raise ValueError("Unknown scan mode")
+        self.scan_mode = scan_mode
+        self.tool_config = tool_config or ToolConfig()
+        self.progress = progress
+        self.cancel = cancel
+        self.input_digest = input_digest
+        self.last_progress = 0
+        self.current_stage = "starting"
+        self.current_file = ""
+        self.skipped_media = 0
+        self.small_members = 0
         self.research = Research()
         self.coverage = Coverage()
         self.profile = profile
@@ -101,6 +119,32 @@ class Analyzer:
         self.file_count = 0
         self.finding_count = 0
         self.truncated = False
+
+    def check(self):
+        if self.cancel and self.cancel():
+            raise AnalysisCancelled("Analysis cancelled")
+
+    def emit(self, stage=None, source=None, **extra):
+        self.check()
+        stage = stage or self.current_stage
+        source = source if source is not None else self.current_file
+        changed = (stage, source) != (self.current_stage, self.current_file)
+        self.current_stage, self.current_file = stage, source
+        now = time.monotonic()
+        if self.progress and (changed or now - self.last_progress >= 0.2):
+            self.last_progress = now
+            self.progress({"stage": stage, "file": source, "files_scanned": self.file_count,
+                           "bytes_scanned": self.total, "entries_seen": self.entries_seen,
+                           "skipped_media": self.skipped_media, **extra})
+
+    def skip_media(self, name, size):
+        self.check()
+        if self.scan_mode == "fast" and Path(name).suffix.lower() in MEDIA_EXT:
+            self.skipped_media += 1
+            self.coverage.add(name, size, "skipped", reason="Fast mode: media/font/texture extension filter; content not read")
+            self.emit("enumerating", name)
+            return True
+        return False
 
     def warn(self, text):
         if text not in self.report["warnings"] and len(self.report["warnings"]) < 100:
@@ -198,7 +242,8 @@ class Analyzer:
         for match in re.finditer(r'@(?:[\w.]*\.)?(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s*\(\s*"([^"\n]+)"', text):
             self.add("endpoints", match.group(2), "relative HTTP route", location, "high", method=match.group(1))
 
-    def consume(self, name, data):
+    def consume(self, name, data, digest=None):
+        self.emit("scanning", name)
         if self.file_count >= self.limits["files"] or self.total + len(data) > self.limits["total"]:
             self.warn("File/expanded-byte budget reached; some files were skipped.")
             self.coverage.add(name, len(data), "skipped", reason="File/content-byte budget reached")
@@ -207,7 +252,7 @@ class Analyzer:
         self.total += len(data)
         suffix = Path(name).suffix.lower()
         self.report["files"].append({"path": name, "size": len(data)})
-        row = self.coverage.add(name, len(data), bytes_hashed=len(data), sha256=sha256_buffer(data))
+        row = self.coverage.add(name, len(data), bytes_hashed=len(data), sha256=digest or sha256_buffer(data, check=self.check))
         self.research.scan_path(name)
         if suffix in {".pb", ".desc", ".protoset", ".bin"} and len(data) <= 8 * 1024**2:
             row["methods"].append("descriptor_probe")
@@ -287,15 +332,18 @@ class Analyzer:
                 self.scan_text(line, name, line=number, context=context)
         else:
             row["methods"].append("ASCII_UTF16LE_string_carving_not_full_binary_semantics")
-            # Short markers (API, AES, TCP, UDP) are part of the requested research plan.
-            for match in re.finditer(rb"[\x20-\x7e]{3,16384}", data):
-                if self.truncated and self.research.truncated:
-                    break
-                self.scan_text(match.group().decode("ascii"), name, offset=match.start())
-            for match in re.finditer(rb"(?:[\x20-\x7e]\x00){3,16384}", data):
-                if self.truncated and self.research.truncated:
-                    break
-                self.scan_text(match.group().decode("utf-16le"), name, offset=match.start())
+            for utf16 in (False, True):
+                for offset, raw in binary_strings(data, utf16=utf16, check=self.check):
+                    if self.truncated and self.research.truncated:
+                        break
+                    ascii_raw = raw[::2] if utf16 else raw
+                    # Preserve short research/protocol tokens and tiny domains, without
+                    # running every extractor on arbitrary 3–5 byte machine-code fragments.
+                    if len(ascii_raw) < 6 and b"." not in ascii_raw:
+                        lower = ascii_raw.lower()
+                        if not any(marker in lower for marker in SHORT_MARKERS):
+                            continue
+                    self.scan_text(ascii_raw.decode("ascii"), name, offset=offset)
         self.finish_file_coverage(row)
         return True
 
@@ -305,6 +353,7 @@ class Analyzer:
             row["reason"] = "Extraction finding limit reached; the full-file hash is independent of extraction."
 
     def scan_text(self, text, name, line=None, offset=None, context=None):
+        self.emit()
         for start in range(0, len(text), 7900):
             self.scan_line(text[start:start + 8192].replace("\\/", "/"), name, line, offset, context)
             if self.truncated and self.research.truncated:
@@ -396,9 +445,11 @@ class Analyzer:
         except (ValueError, UnicodeError, RecursionError):
             self.warn(f"Invalid bundle JSON: {name}")
 
-    def consume_path(self, name, path):
+    def consume_path(self, name, path, digest=None):
         self.research.scan_path(name)
         size = path.stat().st_size
+        if self.skip_media(name, size):
+            return
         if size > self.limits["member"]:
             self.coverage.add(name, size, "skipped", reason="Individual file size limit")
             self.warn(f"Large file skipped: {name}")
@@ -408,9 +459,10 @@ class Analyzer:
             return
         with path.open("rb") as stream:
             with mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data:
-                self.consume(name, data)
+                self.consume(name, data, digest=digest)
 
     def archive(self, path, prefix="", depth=0):
+        self.emit("enumerating", prefix or path.name)
         if depth > self.limits["depth"]:
             self.coverage.add(prefix.rstrip("!"), path.stat().st_size, "unexpanded", "archive", "Archive depth limit")
             self.warn(f"Archive depth limit reached: {prefix}")
@@ -427,6 +479,7 @@ class Analyzer:
             infos = archive.infolist()
             archive_row["declared_entries"] = len(infos)
             for entry_index, info in enumerate(infos):
+                self.check()
                 if self.entries_seen >= self.limits["files"]:
                     self.warn("Archive entry budget reached; results are partial.")
                     archive_row.update(status="inventory_incomplete", reason="Global entry budget", unlisted_direct_entries=len(infos) - entry_index)
@@ -446,6 +499,8 @@ class Analyzer:
                         self.coverage.inventory_complete = False
                     self.warn(f"Unsafe archive entry skipped: {name[:160]}")
                     continue
+                if self.skip_media(name, info.file_size):
+                    continue
                 suffix = Path(local_name).suffix.lower()
                 is_container = suffix in ARCHIVE_EXT
                 limit = self.limits["input"] if is_container else self.limits["member"]
@@ -460,11 +515,23 @@ class Analyzer:
                                       "archive" if is_container else "file", "Shared expanded/content-byte budget")
                     continue
                 try:
+                    self.emit("expanding", name, completed_bytes=0, total_bytes=info.file_size)
+                    if not is_container and info.file_size <= SMALL_MEMBER:
+                        with archive.open(info) as stream:
+                            data = stream.read(SMALL_MEMBER + 1)
+                        self.expanded += len(data)
+                        if len(data) > SMALL_MEMBER or self.expanded > self.limits["expanded"]:
+                            raise ValueError("Small-member/expanded-byte limit reached")
+                        self.small_members += 1
+                        self.consume(name, data)
+                        continue
                     with tempfile.TemporaryDirectory(prefix="protohunter-member-") as tmp:
                         staged = Path(tmp, "member" + suffix)
                         with archive.open(info) as stream, staged.open("wb") as output:
                             count = 0
+                            staged_digest = hashlib.sha256()
                             while True:
+                                self.emit("expanding", name, completed_bytes=count, total_bytes=info.file_size)
                                 chunk = stream.read(min(1024**2, limit - count + 1))
                                 if not chunk:
                                     break
@@ -472,6 +539,7 @@ class Analyzer:
                                 self.expanded += len(chunk)
                                 if count > limit or self.expanded > self.limits["expanded"]:
                                     raise ValueError("Expanded-byte limit reached")
+                                staged_digest.update(chunk)
                                 output.write(chunk)
                         if is_container and zipfile.is_zipfile(staged):
                             self.archive(staged, name + "!", depth + 1)
@@ -483,7 +551,7 @@ class Analyzer:
                         else:
                             if suffix == ".obb":
                                 self.warn(f"Non-ZIP OBB: strings only; Unity asset bundles are not unpacked: {name}")
-                            self.consume_path(name, staged)
+                            self.consume_path(name, staged, digest=staged_digest.hexdigest())
                 except (OSError, ValueError, RuntimeError, zipfile.BadZipFile, EOFError) as exc:
                     self.coverage.add(name, info.file_size, "unexpanded" if is_container else "error",
                                       "archive" if is_container else "file", str(exc))
@@ -496,6 +564,7 @@ class Analyzer:
                     self.coverage.add(prefix + Path(root, d).relative_to(path).as_posix(), None, "unexpanded", "directory", "Symlink not followed")
             directories[:] = sorted(d for d in directories if not Path(root, d).is_symlink())
             for name in sorted(names):
+                self.check()
                 item = Path(root, name)
                 if item.is_symlink() or not item.is_file():
                     self.coverage.add(prefix + item.relative_to(path).as_posix(), None, "skipped", reason="Symlink or non-regular file")
@@ -530,26 +599,54 @@ class Analyzer:
             if tool == "apktool" and path.suffix.lower() != ".apk":
                 self.warn("Apktool requires an APK; standalone DEX needs a separate disassembler such as baksmali.")
                 continue
-            executable = shutil.which(tool)
+            try:
+                executable = self.tool_config.command(tool)
+            except ValueError as exc:
+                self.warn(str(exc))
+                continue
             if not executable:
                 self.warn(f"{tool} not installed; external decoding skipped.")
                 continue
             with tempfile.TemporaryDirectory(prefix="protohunter-decode-") as tmp:
                 output = Path(tmp, "decoded")
-                command = ([executable, "--no-res", "-d", str(output), str(path.resolve())] if tool == "jadx"
-                           else [executable, "d", "-f", "-o", str(output), str(path.resolve())])
+                command = (executable + ["--no-res", "-d", str(output), str(path.resolve())] if tool == "jadx"
+                           else executable + ["d", "-f", "-o", str(output), str(path.resolve())])
+                if tool == "apktool" and self.scan_mode == "fast":
+                    command.insert(len(executable) + 1, "-r")
+                    self.warn("Fast mode: Apktool -r skips resource decoding; direct resource-string scanning is still attempted.")
+                proc = None
                 try:
-                    # No shell; target path is absolute. Decoder output stays in a disposable directory.
-                    proc = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                          timeout=180, check=False)
-                    if proc.returncode:
-                        self.warn(f"{tool} exited with code {proc.returncode}; output may be incomplete.")
+                    with tempfile.TemporaryFile() as log:
+                        self.emit("decoding", prefix or path.name, decoder=tool)
+                        proc = subprocess.Popen(command, stdout=log, stderr=log,
+                                                start_new_session=os.name != "nt",
+                                                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0)
+                        deadline = time.monotonic() + 180
+                        while proc.poll() is None:
+                            self.emit("decoding", prefix or path.name, decoder=tool)
+                            if time.monotonic() >= deadline:
+                                stop_decoder(proc)
+                                self.warn(f"{tool} exceeded 180 seconds; output may be incomplete.")
+                                break
+                            try:
+                                proc.wait(timeout=0.2)
+                            except subprocess.TimeoutExpired:
+                                pass
+                        if proc.returncode:
+                            log.seek(0)
+                            detail = log.read(1800).decode("utf-8", "replace")
+                            self.warn(f"{tool} exited with code {proc.returncode}: {detail}")
                     if output.is_dir():
                         self.directory(output, prefix=prefix + f"{tool}/")
-                except subprocess.TimeoutExpired:
-                    self.warn(f"{tool} exceeded 180 seconds; skipped.")
+                except AnalysisCancelled:
+                    if proc:
+                        stop_decoder(proc)
+                    raise
                 except OSError as exc:
                     self.warn(f"Could not start {tool}: {exc}")
+                finally:
+                    if proc and proc.poll() is None:
+                        stop_decoder(proc)
 
     def correlate_servers(self):
         """Group direct host evidence, not a runtime call graph or data-flow inference."""
@@ -589,7 +686,9 @@ class Analyzer:
         if not path.exists():
             raise ValueError("Input does not exist")
         self.decode_mode = decode
-        self.report["input"] = {"name": display_name or path.name, "decode": decode, "profile": self.profile}
+        self.report["input"] = {"name": display_name or path.name, "decode": decode, "profile": self.profile, "scan_mode": self.scan_mode}
+        if self.scan_mode == "fast":
+            self.warn("Fast mode skips media/font/texture files by extension. Use deep mode to include them; see coverage.")
         self.report["limits"] = self.limits.copy()
         if path.is_dir():
             self.report["input"]["kind"] = "directory"
@@ -598,11 +697,17 @@ class Analyzer:
             size = path.stat().st_size
             if size > self.limits["input"]:
                 raise ValueError(f"Input exceeds {self.limits['input'] // 1024**2} MiB for this profile")
-            digest = hashlib.sha256()
-            with path.open("rb") as stream:
-                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                    digest.update(chunk)
-            self.report["input"].update(size=size, sha256=digest.hexdigest(), kind=path.suffix.lower().lstrip("."))
+            digest_value = self.input_digest
+            if not digest_value:
+                digest = hashlib.sha256()
+                completed = 0
+                with path.open("rb") as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        completed += len(chunk)
+                        self.emit("hashing", display_name or path.name, completed_bytes=completed, total_bytes=size)
+                        digest.update(chunk)
+                digest_value = digest.hexdigest()
+            self.report["input"].update(size=size, sha256=digest_value, kind=path.suffix.lower().lstrip("."))
             if zipfile.is_zipfile(path):
                 try:
                     self.archive(path)
@@ -613,7 +718,7 @@ class Analyzer:
             else:
                 if path.suffix.lower() == ".obb":
                     self.warn("Non-ZIP OBB: strings only; Unity asset bundles are not unpacked.")
-                self.consume_path(display_name or path.name, path)
+                self.consume_path(display_name or path.name, path, digest=digest_value)
             if decode != "none":
                 if path.suffix.lower() in {".apk", ".dex"}:
                     self.decode(path, decode)
@@ -621,6 +726,7 @@ class Analyzer:
                     self.warn("External decoders are only used for APK/DEX input or APK members of bundles.")
             elif path.suffix.lower() in {".apk", ".dex", ".aab", ".xapk", ".apks"}:
                 self.warn("String/asset analysis only. Enable external decoding for Java/Smali output (APK/DEX).")
+        self.emit("reporting", self.report["input"]["name"])
         self.correlate_servers()
         self.research.finish(self.report)
         if self.research.truncated:
@@ -632,6 +738,7 @@ class Analyzer:
         endpoints = self.report["endpoints"]
         self.report["summary"] = {
             "files_scanned": self.file_count, "bytes_scanned": self.total,
+            "skipped_media": self.skipped_media, "small_members_in_memory": self.small_members,
             "expanded_bytes": self.expanded, "archive_entries": self.entries_seen,
             "native_modules": len(self.report["native"]), "bundle_findings": len(self.report["bundles"]),
             "research_findings": len(self.report["research"]), "invoke_references": len(self.report["flow"]),
@@ -645,5 +752,6 @@ class Analyzer:
         return self.report
 
 
-def analyze(path, decode="none", display_name=None, profile="standard"):
-    return Analyzer(profile).run(path, decode, display_name)
+def analyze(path, decode="none", display_name=None, profile="standard", scan_mode="deep", tool_config=None,
+            progress=None, cancel=None, input_digest=None):
+    return Analyzer(profile, scan_mode, tool_config, progress, cancel, input_digest).run(path, decode, display_name)

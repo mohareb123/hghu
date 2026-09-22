@@ -3,9 +3,11 @@ from collections import Counter
 import hashlib
 
 
-def sha256_buffer(data):
+def sha256_buffer(data, check=None):
     digest = hashlib.sha256()
     for offset in range(0, len(data), 1024**2):
+        if check:
+            check()
         digest.update(data[offset:offset + 1024**2])
     return digest.hexdigest()
 

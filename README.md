@@ -1,6 +1,6 @@
 # ProtoHunter
 
-**مساحة محلية لتحليل حزم ألعاب Android وNative/IL2CPP وProtobuf وSmali — v0.4.0.**
+**مساحة محلية لتحليل حزم ألعاب Android وNative/IL2CPP وProtobuf وSmali — v0.5.0.**
 
 أداة أولية عملية (MVP) مستوحاة من أسلوب استكشاف الملفات في [JADX](https://github.com/skylot/jadx)، وليست بديلًا كاملًا عنه أو محرك decompiler جديدًا. تجمع مؤشرات الاتصال وتربطها بالدليل، وتستخدم JADX وApktool اختياريًا لفك التطبيق.
 
@@ -8,6 +8,26 @@
 - CLI للتكامل مع سير عمل التحليل.
 - لا يتم تشغيل التطبيق، أو الاتصال بالعناوين المستخرجة، أو إرسال الملفات لخدمات تحليل خارجية.
 - Python **3.10+**، دون مكتبات تشغيل إلزامية من طرف ثالث.
+
+## تحسين تحميل APK/XAPK وApktool JAR — جديد في 0.5
+
+- **فتح مباشر من الجهاز بدون رفع** في EXE على Windows؛ لا تُنسخ الحزمة عبر المتصفح.
+- تقدم رفع منفصل عن تقدم الفحص، مهام خلفية، وإلغاء مع تنظيف الملفات المؤقتة.
+- قراءة أعضاء ZIP الصغيرة في الذاكرة بدل إنشاء ملف مؤقت لكل عضو، وتقليل حساب البصمات المكرر.
+- وضع سريع يتخطى امتدادات الوسائط والخطوط وبعض textures ويسجل التخطي؛ وضع عميق يحتفظ بنطاق الفحص السابق. الفحص السريع مع Apktool يستخدم `-r` لتجنب فك الموارد؛ فحص سلاسل الموارد المباشر مستمر.
+- اختيار **apktool.jar وjava.exe** من إعدادات الواجهة وفحص تشغيلهما، دون ملف BAT أو PATH. Java Runtime لا يزال مطلوبًا وغير مضمّن.
+
+راجع [خطوات Windows](packaging/README-Windows.md). مثال CLI:
+
+```powershell
+.\ProtoHunter.exe analyze .\game.xapk --profile games --scan-mode fast --decode apktool --apktool-jar "C:\Tools\apktool.jar" --java "C:\Java\bin\java.exe" -o .\reports\game.json
+```
+
+الواجهة تبدأ سريعًا وبلا decoder؛ CLI يبدأ عميقًا. فك Smali يظل اختياريًا وقد يستغرق دقائق. اختبار صناعي صغير تحسن من ~1.14s إلى ~0.55s عميق/~0.08s سريع، وليس قياسًا لأداء لعبة حقيقية.
+
+API الواجهة: `POST /api/jobs?name=game.xapk&profile=games&scan_mode=fast` ببيانات ثنائية يعيد `job_id`؛ ثم `GET /api/jobs/{id}` للحالة، `/result` للتقرير، و`POST /api/jobs/{id}/cancel` للإلغاء. يحتفظ الخادم بآخر مهمتين فقط، مع انتهاء صلاحية التقرير بعد ساعة. `/api/analyze` المتزامن باقٍ للتوافق.
+
+إعداد الأدوات واختيار الملفات المحلية غير متاحين في المعاينة العامة. لتفعيلهما من المصدر استخدم `serve --host 127.0.0.1 --desktop-tools --allow-decoders`؛ يتطلب API الإعداد رمزًا خاصًا ونطاق loopback صحيحًا. الخادم ليس خدمة عامة موثّقة الهوية؛ لا تعرضه لشبكة غير موثوقة.
 
 ## نسخة Windows EXE — جديد في 0.4
 
@@ -24,7 +44,7 @@ JADX وApktool وJava **اختيارية وغير مضمّنة**. الملف غ�
 
 ### بناء EXE من المصدر
 
-البناء يتم **على Windows x64** باستخدام Python 3.12؛ PyInstaller لا يحوّل بناء Linux إلى Windows EXE.
+البناء يتم **على Windows x64** باستخدام Python 3.12 وJDK 17 مع ضبط `JAVA_HOME` لاختبار ربط JAR فقط؛ PyInstaller لا يحوّل بناء Linux إلى Windows EXE.
 
 ```powershell
 .\packaging\build-windows.ps1
@@ -137,7 +157,7 @@ python -m protohunter doctor
 
 ### ربط JADX وApktool
 
-ثبّت Java والمحركات من مصادرها الرسمية، وضع أوامرها على `PATH`:
+ثبّت Java والمحركات من مصادرها الرسمية. لأوامر wrappers ضعها على `PATH`، أو استخدم `--apktool-jar` و`--java` للمسارات المباشرة:
 
 - [JADX — installation](https://github.com/skylot/jadx#download)
 - [Apktool — installation](https://apktool.org/docs/install/)
@@ -267,3 +287,5 @@ tests/                    اختبارات Python القياسية
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+اختبار واجهة المهام والإعدادات (يحاكي حوار Windows ومهمة طويلة، ولا يستبدل اختبار API): `node tests/browser-jobs.cjs`.

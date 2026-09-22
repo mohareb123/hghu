@@ -7,6 +7,7 @@ import webbrowser
 from . import __version__
 from .cli import main as cli_main
 from .web import Server
+from .tooling import ToolConfig
 
 
 def main(argv=None):
@@ -18,7 +19,7 @@ def main(argv=None):
         if not 0 <= port <= 65535:
             raise ValueError("PROTOHUNTER_PORT must be between 0 and 65535")
         # A desktop executable must never open a public, unauthenticated listener.
-        with Server(("127.0.0.1", port)) as server:
+        with Server(("127.0.0.1", port), allow_decoders=True, tool_config=ToolConfig.load(), desktop_tools=True) as server:
             url = f"http://127.0.0.1:{server.server_port}/"
             print(f"ProtoHunter {__version__} - local Android research", flush=True)
             print(f"Open: {url}", flush=True)

@@ -4,6 +4,7 @@ const titles = {research:'Login → Session → Game', flow:'مراجع الاس
 const confidenceLabels = {high:'عالية', medium:'متوسطة', low:'محتمل'};
 let report = null, view = 'endpoints', page = 0, selected = null, busy = false, copyText = '';
 const pageSize = 30;
+let activeJob=null, currentXHR=null, uploadFinished=false, cancelRequested=false, desktopToken=null, serverStatus=null;
 const stageLabels={login:'Login / إعدادات',session:'بيانات الجلسة',transport:'TCP / اتصال',messages:'رسائل اللعبة',security:'التشفير والمصادقة',serialization:'Serialization',discovery:'الشبكات'};
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -18,24 +19,34 @@ function notice(text, error = false) {
 }
 function setBusy(value) {
   busy = value;
-  $('choose').disabled = $('demo').disabled = $('decoder').disabled = $('profile').disabled = value;
+  for(const id of ['choose','demo','decoder','profile','scan-mode','open-local','save-tools','pick-jar','pick-java']) $(id).disabled=value;
+  $('cancel-job').disabled=!value && !activeJob;
+  $('resume-job').hidden=value || !activeJob;
   $('dropzone').classList.toggle('busy', value);
-  $('choose').textContent = value ? 'جارٍ التحليل…' : '+ اختر ملفًا';
+  $('choose').textContent = value ? 'جارٍ العمل…' : '+ رفع ملف';
 }
-async function load(file, demo = false) {
+async function load(file, demo = false, local = false, resume = false) {
   if (busy) return;
-  if (!demo && !file) return;
+  if(activeJob && !resume) return notice('ألغِ المهمة السابقة أولًا إذا كانت ما زالت تعمل.',true);
+  if (!demo && !file && !local && !resume) return;
   const limit = $('profile').value === 'games' ? 2 * 1024**3 : 128 * 1024**2;
   if (file && file.size > limit) return notice('الملف أكبر من حد الوضع المحدد. للحزم الضخمة استخدم CLI أو حلّل مجلد الملفات.', true);
-  setBusy(true);
-  notice('جارٍ رفع الملف وتحليله على الخادم المحلي. فك الكود الخارجي قد يستغرق عدة دقائق.');
+  cancelRequested=false;uploadFinished=false;setBusy(true);
+  progressText(local ? 'اختيار الملف من نافذة Windows…' : demo ? 'فحص المثال…' : 'رفع الملف إلى الخادم…', 'الرفع والتحليل مرحلتان منفصلتان.', local || demo ? null : 0);
+  notice('الوضع السريع يتخطى الوسائط والخطوط فقط. استخدم العميق لتضمينها.');
   try {
-    const params = new URLSearchParams({name: demo ? 'demo.smali' : file.name, decode: demo ? 'none' : $('decoder').value, profile:$('profile').value});
-    const response = await fetch(`${demo ? '/api/demo' : '/api/analyze'}?${params}`, {
-      method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:demo ? new Uint8Array() : file
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'تعذّر تحليل الملف');
+    const params = new URLSearchParams({name: demo ? 'demo.smali' : file?.name || 'local.apk', decode: demo ? 'none' : $('decoder').value, profile:$('profile').value, scan_mode:$('scan-mode').value});
+    let data;
+    if(resume){data=await watchJob(activeJob);}
+    else if(demo){
+      data=await responseJSON(await fetch('/api/demo?'+params,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:new Uint8Array()}));
+    }else{
+      const accepted=local ? await desktopRequest('/api/local-file?'+params,{}) : await uploadFile('/api/jobs?'+params,file);
+      if(accepted.cancelled) throw new Error('تم إلغاء اختيار الملف.');
+      activeJob=accepted.job_id;
+      if(cancelRequested) await cancelActiveJob();
+      data=await watchJob(activeJob);
+    }
     report = data; page = 0; selected = null; copyText = '';
     $('copy').disabled = false;
     $('export').disabled = false;
@@ -58,9 +69,11 @@ async function load(file, demo = false) {
     $('warnings-box').hidden = false;
     $('warnings-title').textContent = `حدود التحليل وملاحظاته (${warnings.length})`;
     notice(demo ? 'تقرير تجريبي من ملف Smali صناعي. كل النتائج مستخرجة فعليًا من الملف.' : `اكتمل التحليل: ${summary.findings} نتيجة عامة و${summary.research_findings} مؤشر في خطة البحث. ${data.warnings.length ? 'راجع ملاحظات التحليل أدناه.' : ''}`);
+    progressText('اكتمل التحليل',`${summary.files_scanned} ملف مفحوص · ${summary.skipped_media || 0} ملف وسائط متخطّى · ${summary.elapsed_seconds} ثانية تحليل`,100);
     render();
   } catch (error) {
-    notice('تعذّر إكمال التحليل: ' + error.message, true);
+    notice(error.message,true);
+    progressText(activeJob ? 'تعذر تحديث الحالة — قد تستمر المهمة على الخادم' : cancelRequested ? 'تم الإلغاء' : 'لم يكتمل التحليل',error.message,null);
   } finally { setBusy(false); $('file-input').value = ''; }
 }
 function rows() {
@@ -172,6 +185,14 @@ document.querySelectorAll('.nav').forEach(button => button.addEventListener('cli
 }));
 $('profile').addEventListener('change',() => {$('upload-limit').textContent=$('profile').value === 'games' ? 'MAX 2 GiB' : 'MAX 128 MiB';});
 $('choose').addEventListener('click',() => $('file-input').click());
+$('open-local').addEventListener('click',()=>load(null,false,true));
+$('resume-job').addEventListener('click',()=>load(null,false,false,true));
+$('cancel-job').addEventListener('click',async()=>{
+  cancelRequested=true;
+  if(currentXHR && !uploadFinished){currentXHR.abort();return;}
+  if(activeJob){try{await cancelActiveJob();notice('طُلب الإلغاء؛ انتظر إيقاف العمل وتنظيف الملفات المؤقتة.');if(!busy)load(null,false,false,true);}catch(error){notice(error.message,true);}}
+  else notice('سيتم إلغاء المهمة بعد اختيار الملف أو تأكيد استلام الرفع.');
+});
 $('file-input').addEventListener('change',event => load(event.target.files[0]));
 $('demo').addEventListener('click',() => load(null,true));
 $('search').addEventListener('input',() => {page=0; render();});
@@ -192,12 +213,90 @@ $('copy').addEventListener('click',async () => {
   try { await navigator.clipboard.writeText(copyText); $('copy').textContent='تم النسخ'; setTimeout(() => {$('copy').textContent='نسخ';},1500); }
   catch { notice('النسخ غير متاح في هذا المتصفح. يمكنك تحديد النص أو تصدير JSON.',true); }
 });
-fetch('/api/status').then(response => response.json()).then(status => {
-  for (const tool of ['jadx','apktool']) $(tool + '-status').textContent=status.tools[tool] ? 'متاح' : 'غير مثبت · اختياري';
-  if (status.allow_decoders && (status.tools.jadx || status.tools.apktool)) {
-    const option=$('decoder').options[1]; option.disabled=false; option.textContent='تلقائي · المحركات المتاحة';
+async function responseJSON(response){
+  let value;
+  try{value=await response.json();}catch{throw new Error('رد غير صالح من الخادم. قد يكون هناك حد للرفع أو مهلة في وسيط الاتصال.');}
+  if(!response.ok){const error=new Error(value.error || `HTTP ${response.status}`);error.status=response.status;throw error;}
+  return value;
+}
+function progressText(title,detail,percent=null){
+  $('progress-panel').hidden=false;$('progress-title').textContent=title;$('progress-detail').textContent=detail;
+  if(percent===null) $('progress-bar').removeAttribute('value');else $('progress-bar').value=percent;
+}
+function uploadFile(url,file){
+  return new Promise((resolve,reject)=>{
+    const xhr=new XMLHttpRequest();currentXHR=xhr;
+    xhr.open('POST',url);xhr.setRequestHeader('Content-Type','application/octet-stream');
+    xhr.upload.onprogress=event=>{
+      const percent=event.lengthComputable ? Math.round(event.loaded/event.total*100) : null;
+      progressText(`رفع الملف ${percent===null ? '' : percent+'%'}`,`${(event.loaded/1024**2).toFixed(1)} / ${(file.size/1024**2).toFixed(1)} MiB — ليس تقدم التحليل`,percent);
+    };
+    xhr.upload.onload=()=>{uploadFinished=true;progressText('اكتمل إرسال الملف — بدء المهمة…','انتظار تأكيد الاستلام، ثم تظهر مرحلة الفحص.',null);};
+    xhr.onload=()=>{
+      currentXHR=null;
+      try{const value=JSON.parse(xhr.responseText);if(xhr.status>=400)throw new Error(value.error || 'تعذر قبول الملف');resolve(value);}
+      catch(error){reject(error);}
+    };
+    xhr.onerror=()=>{currentXHR=null;reject(new Error('تعذر نقل الملف. في EXE استخدم «فتح من الجهاز» لتجنب الرفع.'));};
+    xhr.onabort=()=>{currentXHR=null;reject(new Error('تم إلغاء رفع الملف.'));};
+    xhr.send(file);
+  });
+}
+async function cancelActiveJob(){
+  return responseJSON(await fetch('/api/jobs/'+activeJob+'/cancel',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:new Uint8Array()}));
+}
+async function watchJob(id){
+  const stages={starting:'بدء التحليل',hashing:'حساب بصمة الملف',enumerating:'حصر محتويات الحزمة',expanding:'قراءة وفك عضو من الحزمة',scanning:'فحص الأدلة',decoding:'فك الكود بالمحرك الخارجي',reporting:'تجميع التقرير',cleaning:'تنظيف الملفات المؤقتة'};
+  let failures=0;
+  while(true){
+    let status;
+    try{status=await responseJSON(await fetch('/api/jobs/'+id));failures=0;}
+    catch(error){if(error.status===404){activeJob=null;throw error;}if(++failures>=3)throw error;await new Promise(resolve=>setTimeout(resolve,1000));continue;}
+    const p=status.progress;
+    const percent=['hashing','expanding'].includes(p.stage) && p.total_bytes ? Math.round(p.completed_bytes/p.total_bytes*100) : null;
+    progressText(status.status==='cancelling'?'جارٍ إيقاف المهمة…':stages[p.stage] || p.stage,
+      `${p.file || ''} · ${p.files_scanned || 0} ملف · ${p.skipped_media || 0} وسائط متخطاة · ${status.elapsed_seconds} ثانية${p.decoder?' · '+p.decoder:''}${percent!==null?' · '+percent+'% من الملف الحالي':''}`,percent);
+    if(status.status==='completed'){
+      const result=await responseJSON(await fetch('/api/jobs/'+id+'/result'));activeJob=null;return result;
+    }
+    if(status.status==='failed' || status.status==='cancelled'){
+      activeJob=null;throw new Error(status.error || 'تم إلغاء التحليل وتنظيف الملفات المؤقتة.');
+    }
+    await new Promise(resolve=>setTimeout(resolve,750));
   }
-}).catch(() => notice('تعذّر الاتصال بخادم التحليل.',true));
+}
+async function desktopRequest(path,body){
+  return responseJSON(await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-ProtoHunter-Config-Token':desktopToken},body:JSON.stringify(body)}));
+}
+function applyStatus(status){
+  serverStatus=status;desktopToken=status.config_token;
+  for(const tool of ['jadx','apktool','java']) $(tool+'-status').textContent=status.tools[tool]?'المسار متاح':'غير موجود';
+  if(status.tools.apktool_jar_found && !status.tools.java) $('apktool-status').textContent='JAR يحتاج Java';
+  for(const option of $('decoder').options){
+    if(option.value==='none')continue;
+    option.disabled=!status.allow_decoders || !(option.value==='auto'?(status.tools.jadx || status.tools.apktool):status.tools[option.value]);
+  }
+  if($('decoder').selectedOptions[0].disabled)$('decoder').value='none';
+  $('tool-settings').hidden=!status.desktop_tools;
+  $('open-local').hidden=!status.native_picker;
+  $('pick-jar').hidden=$('pick-java').hidden=!status.native_picker;
+  if(status.desktop_tools){$('apktool-path').value=status.tools.apktool_jar || '';$('java-path').value=status.tools.java_path || '';}
+}
+fetch('/api/status').then(responseJSON).then(applyStatus).catch(()=>notice('تعذّر الاتصال بخادم التحليل.',true));
+for(const [id,kind,target] of [['pick-jar','apktool','apktool-path'],['pick-java','java','java-path']]) $(id).addEventListener('click',async()=>{
+  setBusy(true);
+  try{const choice=await desktopRequest('/api/choose-tool',{kind});if(choice.path)$(target).value=choice.path;}
+  catch(error){$('tool-result').textContent=error.message;}finally{setBusy(false);}
+});
+$('save-tools').addEventListener('click',async()=>{
+  setBusy(true);$('tool-result').textContent='فحص Java وApktool…';
+  try{
+    const result=await desktopRequest('/api/tools',{apktool_jar:$('apktool-path').value.trim(),java:$('java-path').value.trim()});
+    $('tool-result').textContent=result.checks.map(c=>`${c.tool}: ${c.ok?'OK':'ERROR'}\n${c.output}`).join('\n') || 'Java غير موجود. ملف JAR يحتاج Java Runtime؛ ثبّت إصدارًا متوافقًا مع نسخة Apktool.';
+    applyStatus(await responseJSON(await fetch('/api/status')));
+    if(result.tools.apktool && result.checks.every(c=>c.ok))notice('تم الحفظ. اختر «Apktool · Smali» من قائمة فك الكود لتفعيله.');
+  }catch(error){$('tool-result').textContent=error.message;}finally{setBusy(false);}
+});
 
 function renderResearchOverview() {
   $('research-overview').hidden=false;

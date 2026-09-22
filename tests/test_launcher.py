@@ -18,7 +18,8 @@ class LauncherTests(unittest.TestCase):
         server.serve_forever.side_effect = KeyboardInterrupt
         with patch.dict(os.environ, {'PROTOHUNTER_NO_BROWSER':'1','PROTOHUNTER_PORT':'0'}), patch('protohunter.launcher.Server', return_value=server) as factory:
             self.assertEqual(main([]), 0)
-            factory.assert_called_once_with(('127.0.0.1', 0))
+            self.assertEqual(factory.call_args.args, (('127.0.0.1', 0),))
+            self.assertTrue(factory.call_args.kwargs['desktop_tools'])
             server.__exit__.assert_called_once()
 
     def test_invalid_port_is_a_clear_error(self):

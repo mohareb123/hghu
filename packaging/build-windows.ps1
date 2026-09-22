@@ -3,6 +3,9 @@ Set-Location (Split-Path -Parent $PSScriptRoot)
 if (-not $IsWindows -and $env:OS -ne 'Windows_NT') {
     throw 'This build must run on Windows x64; PyInstaller does not cross-compile Windows EXEs on Linux.'
 }
+if (-not $env:JAVA_HOME -or -not (Test-Path "$env:JAVA_HOME\bin\javac.exe")) {
+    throw 'Set JAVA_HOME to a JDK 17 installation for the Java/JAR integration smoke test (not bundled in the EXE).'
+}
 function Invoke-Checked {
     param([string]$Program, [string[]]$Arguments)
     & $Program @Arguments
