@@ -18,7 +18,7 @@ class ToolingTests(unittest.TestCase):
             jar = Path(tmp, 'apk tool.jar'); jar.touch()
             java = Path(tmp, 'java executable.exe'); java.touch()
             config = ToolConfig(str(jar), str(java))
-            self.assertEqual(config.command('apktool'), [str(java), '-jar', str(jar)])
+            self.assertEqual(config.command('apktool'), [str(java), '-jar', str(jar.resolve())])
             target = Path(tmp, 'settings.json'); config.save(target)
             self.assertEqual(ToolConfig.load(target), config)
             self.assertTrue(config.status()['apktool'])
@@ -43,7 +43,7 @@ class ToolingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True), patch('protohunter.tooling.shutil.which', return_value=None), patch('protohunter.tooling.app_directory', return_value=Path(tmp)):
             jar = Path(tmp, 'tools/apktool.jar'); jar.parent.mkdir(); jar.touch()
             java = Path(tmp, 'tools/java/bin/java.exe'); java.parent.mkdir(parents=True); java.touch()
-            self.assertEqual(ToolConfig().command('apktool'), [str(java), '-jar', str(jar)])
+            self.assertEqual(ToolConfig().command('apktool'), [str(java), '-jar', str(jar.resolve())])
 
     def test_probe_timeout_and_nonzero_exit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -64,7 +64,7 @@ class ToolingTests(unittest.TestCase):
                 popen.return_value.poll.return_value = 2
                 popen.return_value.returncode = 2
                 analyzer.decode(source, 'apktool')
-                self.assertEqual(popen.call_args.args[0][:3], [str(java), '-jar', str(jar)])
+                self.assertEqual(popen.call_args.args[0][:3], [str(java), '-jar', str(jar.resolve())])
                 self.assertFalse(popen.call_args.kwargs.get('shell', False))
             self.assertTrue(any('exited with code 2' in w for w in analyzer.report['warnings']))
 

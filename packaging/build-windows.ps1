@@ -8,8 +8,13 @@ if (-not $env:JAVA_HOME -or -not (Test-Path "$env:JAVA_HOME\bin\javac.exe")) {
 }
 function Invoke-Checked {
     param([string]$Program, [string[]]$Arguments)
-    & $Program @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "$Program failed ($LASTEXITCODE)" }
+    & $Program @Arguments 2>&1 | Tee-Object -Variable CommandLog
+    if ($LASTEXITCODE -ne 0) {
+        $Code = $LASTEXITCODE
+        $Details = ($CommandLog | Select-Object -Last 70 | Out-String).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+        if ($env:GITHUB_ACTIONS) { Write-Host "::error::$Details" }
+        throw "$Program failed ($Code)"
+    }
 }
 Invoke-Checked -Program 'python' -Arguments @('-m', 'venv', '.venv-build')
 $Python = Join-Path (Get-Location) '.venv-build\Scripts\python.exe'
