@@ -30,6 +30,7 @@ jobs:
           path: |
             dist/ProtoHunter.exe
             dist/README-Windows.md
+            dist/workspaces.md
             dist/SHA256SUMS.txt
             dist/LICENSE.txt
           if-no-files-found: error

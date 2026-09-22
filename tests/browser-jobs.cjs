@@ -8,7 +8,7 @@ const assert=require('node:assert/strict');
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     let cancelled=false;
     const tools={java:true,apktool:true,jadx:false,apktool_jar:'C:\\Tools\\apktool.jar',java_path:'C:\\Java\\bin\\java.exe'};
-    await page.route('**/api/status',route=>route.fulfill({json:{version:'0.5.0',tools,allow_decoders:true,desktop_tools:true,native_picker:true,config_token:'test-token'}}));
+    await page.route('**/api/status',route=>route.fulfill({json:{version:'0.6.0',tools,allow_decoders:true,desktop_tools:true,native_picker:true,config_token:'test-token'}}));
     for(const path of ['choose-tool','tools','local-file'])await page.route('**/api/'+path+'*',route=>{
       assert.equal(route.request().headers()['x-protohunter-config-token'],'test-token');
       const body=route.request().postDataJSON();

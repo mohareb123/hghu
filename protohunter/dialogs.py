@@ -17,7 +17,11 @@ def choose_file(kind='input'):
                     ('lpfnHook', ctypes.c_void_p), ('lpTemplateName', w.LPCWSTR), ('pvReserved', ctypes.c_void_p),
                     ('dwReserved', w.DWORD), ('FlagsEx', w.DWORD)]
     choices = {'input': ('Android files', '*.apk;*.xapk;*.apks;*.zip;*.dex;*.smali;*.so;*.proto;*.dat;*.obb;*.aab'),
-               'apktool': ('Apktool JAR', '*.jar'), 'java': ('Java executable', 'java.exe')}
+               'apktool': ('Apktool JAR', '*.jar'), 'java': ('Java executable', 'java.exe'),
+               'jadx': ('JADX CLI launcher', '*.bat;*.exe;*.jar'),
+               'il2cpp': ('Il2CppDumper', '*.exe;*.dll'), 'dotnet': ('dotnet runtime', 'dotnet.exe'),
+               'apksigner': ('Android apksigner', '*.jar;*.bat;*.exe'), 'zipalign': ('Android zipalign', 'zipalign.exe'),
+               'keystore': ('Signing keystore', '*.jks;*.keystore;*.p12')}
     if kind not in choices:
         raise ValueError('Unknown chooser type')
     title, pattern = choices[kind]

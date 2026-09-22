@@ -37,6 +37,14 @@ public class FakeApktool {
         apk = base / 'input.apk'
         with zipfile.ZipFile(apk, 'w') as archive:
             archive.writestr('config.txt', 'https://login.example.invalid')
+        projects = base / 'projects'
+        created = subprocess.run([str(executable), 'workspace', '--root', str(projects), 'create', str(apk)],
+                                 capture_output=True, text=True, check=True, timeout=60)
+        project = json.loads(created.stdout)
+        subprocess.run([str(executable), 'workspace', '--root', str(projects), 'run', project['id'], 'inspect'],
+                       stdout=subprocess.DEVNULL, check=True, timeout=60)
+        state = json.loads((projects / project['id'] / 'project.json').read_text(encoding='utf-8'))
+        assert state['runs'][-1]['status'] == 'completed'
         output = base / 'jar-report.json'
         subprocess.run([str(executable), 'analyze', str(apk), '--scan-mode', 'fast', '--decode', 'apktool',
                         '--apktool-jar', str(jar), '--java', str(java_bin / 'java.exe'), '-o', str(output)], check=True, timeout=60)
@@ -50,7 +58,7 @@ def main():
     if os.name != 'nt' or executable.read_bytes()[:2] != b'MZ':
         raise RuntimeError('This smoke test requires an actual Windows PE executable on Windows')
     version = subprocess.run([str(executable), '--version'], capture_output=True, text=True, timeout=60, check=True)
-    assert version.stdout.strip() == '0.5.0', version.stdout
+    assert version.stdout.strip() == '0.6.0', version.stdout
     with tempfile.TemporaryDirectory(prefix='protohunter-exe-test-') as tmp:
         source = Path(tmp, 'sample.smali')
         source.write_text('.class public LN2/c;\n.method public login()V\n const-string v0, "CSMajorLoginReq"\n const-string v1, "https://login.example.invalid/"\n return-void\n.end method\n', encoding='utf-8')
@@ -89,9 +97,15 @@ def main():
             assert b'renderResearchOverview' in response.read()
         with urlopen(url + 'api/status', timeout=15) as response:
             status = json.load(response)
-            assert status['version'] == '0.5.0'
+            assert status['version'] == '0.6.0'
             assert status['desktop_tools'] and status['native_picker'] and status['config_token']
             assert status['allow_decoders']
+        with urlopen(url + 'workspace.js', timeout=15) as response:
+            assert b'/api/workspace' in response.read()
+        request = Request(url + 'api/workspace', data=b'{"action":"list"}',
+                          headers={'Content-Type':'application/json', 'X-ProtoHunter-Config-Token':status['config_token']}, method='POST')
+        with urlopen(request, timeout=15) as response:
+            assert isinstance(json.load(response)['projects'], list)
         request = Request(url + 'api/demo', data=b'', headers={'Content-Type': 'application/octet-stream'}, method='POST')
         with urlopen(request, timeout=30) as response:
             demo = json.load(response)
@@ -115,7 +129,7 @@ def main():
             result = json.load(response)
         assert result['input']['scan_mode'] == 'fast'
         assert result['endpoints'][0]['host'] == 'login.example.invalid'
-        print('WINDOWS EXE SMOKE PASSED: PE, version, CLI extraction, Java/JAR fixture, desktop capabilities, assets, demo, background jobs.')
+        print('WINDOWS EXE SMOKE PASSED: PE, version, CLI extraction, Java/JAR fixture, desktop capabilities, assets, demo, background jobs, persisted workspace CLI/API.')
     finally:
         subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, check=False)
         process.wait(timeout=20)

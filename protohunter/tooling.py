@@ -1,5 +1,5 @@
 """Trusted local tool configuration. JARs are executed only when decoding is requested."""
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 import json
 import os
 from pathlib import Path
@@ -22,6 +22,11 @@ def settings_path():
 class ToolConfig:
     apktool_jar: str = ''
     java: str = ''
+    jadx: str = ''
+    il2cpp: str = ''
+    dotnet: str = ''
+    apksigner: str = ''
+    zipalign: str = ''
 
     def resolve(self):
         base = app_directory()
@@ -36,7 +41,9 @@ class ToolConfig:
             java = next((str(p) for p in candidates if p.is_file()), '') or shutil.which('java') or ''
         else:
             java = shutil.which(java) or java
-        return ToolConfig(str(Path(jar).expanduser().resolve()) if jar else '', java)
+        return ToolConfig(str(Path(jar).expanduser().resolve()) if jar else '', java,
+                          **{key: getattr(self, key) or os.environ.get('PROTOHUNTER_' + key.upper(), '')
+                             for key in ('jadx', 'il2cpp', 'dotnet', 'apksigner', 'zipalign')})
 
     def status(self, private=False):
         config = self.resolve()
@@ -47,8 +54,14 @@ class ToolConfig:
                   'java': java_found, 'apktool_jar_found': jar_found,
                   'apktool_mode': 'jar' if config.apktool_jar else 'command',
                   'apktool_note': 'Java is required for apktool.jar' if jar_found and not java_found else ''}
+        for tool in ('jadx', 'il2cpp', 'apksigner', 'zipalign'):
+            try:
+                result[tool] = bool(self.command(tool))
+            except ValueError:
+                result[tool] = False
         if private:
-            result.update(apktool_jar=config.apktool_jar, java_path=config.java)
+            result.update(apktool_jar=config.apktool_jar, java_path=config.java,
+                          **{key + '_path': getattr(config, key) for key in ('jadx', 'il2cpp', 'dotnet', 'apksigner', 'zipalign')})
         return result
 
     def command(self, tool):
@@ -59,8 +72,29 @@ class ToolConfig:
             if not config.java or not Path(config.java).is_file():
                 raise ValueError('apktool.jar needs Java. Install Java or select java.exe in tool settings.')
             return [config.java, '-jar', config.apktool_jar]
-        executable = shutil.which(tool)
-        return [executable] if executable else None
+        configured = getattr(config, tool, '')
+        executable = shutil.which(configured) or configured if configured else shutil.which('Il2CppDumper' if tool == 'il2cpp' else tool)
+        if not executable:
+            return None
+        path = Path(executable).expanduser().resolve()
+        if tool == 'jadx':
+            lib = path / 'lib' if path.is_dir() else path.parent.parent / 'lib'
+            if lib.is_dir() and any(lib.glob('*.jar')):
+                if not config.java or not Path(config.java).is_file():
+                    raise ValueError('JADX requires Java; select java.exe')
+                return [config.java, '-cp', str(lib / '*'), 'jadx.cli.JadxCLI']
+        if not path.is_file():
+            raise ValueError(f'{tool} executable was not found')
+        if path.suffix.lower() == '.jar':
+            if not config.java or not Path(config.java).is_file():
+                raise ValueError(f'{tool} JAR requires Java')
+            return [config.java, '-jar', str(path)]
+        if tool == 'il2cpp' and path.suffix.lower() == '.dll':
+            dotnet = shutil.which(config.dotnet or 'dotnet') or config.dotnet
+            if not dotnet or not Path(dotnet).is_file():
+                raise ValueError('Il2CppDumper.dll requires a compatible .NET runtime (dotnet)')
+            return [dotnet, str(path)]
+        return [str(path)]
 
     def save(self, path=None):
         # Called only by the explicit trusted desktop settings endpoint.
@@ -69,10 +103,15 @@ class ToolConfig:
             raise ValueError('Select an existing .jar file')
         if self.java and (not resolved.java or not Path(resolved.java).is_file()):
             raise ValueError('Select an existing Java executable')
+        for tool in ('jadx', 'il2cpp', 'apksigner', 'zipalign'):
+            if getattr(self, tool):
+                self.command(tool)
+        if self.dotnet and not (shutil.which(self.dotnet) or Path(self.dotnet).is_file()):
+            raise ValueError('Select an existing dotnet executable')
         destination = path or settings_path()
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_suffix('.tmp')
-        temporary.write_text(json.dumps({'apktool_jar': self.apktool_jar, 'java': self.java}), encoding='utf-8')
+        temporary.write_text(json.dumps(asdict(self)), encoding='utf-8')
         temporary.replace(destination)
 
     @classmethod
@@ -81,7 +120,7 @@ class ToolConfig:
             data = json.loads((path or settings_path()).read_text(encoding='utf-8'))
             if not isinstance(data, dict):
                 return cls()
-            return cls(**{k: str(data.get(k, '')) for k in ('apktool_jar', 'java')})
+            return cls(**{k: str(data.get(k, '')) for k in cls.__dataclass_fields__})
         except (OSError, ValueError, TypeError):
             return cls()
 
@@ -93,6 +132,9 @@ class ToolConfig:
             commands.append(('Java', [config.java, '-version']))
         if self.status()['apktool']:
             commands.append(('Apktool', self.command('apktool') + ['--version']))
+        if self.status()['jadx']:
+            commands.append(('JADX', self.command('jadx') + ['--version']))
+        # Il2CppDumper has no version-only CLI: do not start its interactive workflow here.
         for label, command in commands:
             with tempfile.TemporaryFile() as log:
                 try:

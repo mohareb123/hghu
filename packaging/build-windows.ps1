@@ -22,6 +22,7 @@ Invoke-Checked -Program $Python -Arguments @('-m', 'pip', 'install', '-r', 'pack
 Invoke-Checked -Program $Python -Arguments @('-m', 'unittest', 'discover', '-s', 'tests', '-q')
 Invoke-Checked -Program $Python -Arguments @('-m', 'PyInstaller', '--clean', '--noconfirm', 'packaging/ProtoHunter.spec')
 Invoke-Checked -Program $Python -Arguments @('packaging/smoke_exe.py', 'dist/ProtoHunter.exe')
+Copy-Item 'docs/workspaces.md' 'dist/workspaces.md' -Force
 Copy-Item 'packaging/README-Windows.md' 'dist/README-Windows.md' -Force
 Copy-Item 'LICENSE' 'dist/LICENSE.txt' -Force
 $Hash = (Get-FileHash 'dist/ProtoHunter.exe' -Algorithm SHA256).Hash.ToLowerInvariant()

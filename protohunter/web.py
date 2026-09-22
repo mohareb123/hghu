@@ -16,6 +16,8 @@ from .dialogs import choose_file
 from .jobs import Job
 from .runtime import AnalysisCancelled
 from .tooling import ToolConfig
+from .projects import ProjectStore
+from .workspace_api import handle as workspace_request, authorized
 
 STATIC = Path(__file__).with_name('static')
 ALLOWED = {'.apk', '.aab', '.dex', '.zip', '.jar', '.smali', '.java', '.kt', '.proto', '.pb', '.desc',
@@ -26,7 +28,7 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, allow_decoders=False, tool_config=None, desktop_tools=False):
+    def __init__(self, address, allow_decoders=False, tool_config=None, desktop_tools=False, projects_root=None):
         if desktop_tools and address[0] not in {'127.0.0.1', 'localhost', '::1'}:
             raise ValueError('Desktop tool configuration requires a loopback listener')
         self.jobs_lock = threading.Lock()
@@ -37,6 +39,7 @@ class Server(ThreadingHTTPServer):
         self.desktop_tools = desktop_tools
         self.config_token = secrets.token_urlsafe(24)
         self.analysis_lock = threading.BoundedSemaphore(1)
+        self.projects = ProjectStore(projects_root)
 
     def get_job(self, key):
         with self.jobs_lock:
@@ -44,9 +47,10 @@ class Server(ThreadingHTTPServer):
             self.jobs = {k: job for k, job in self.jobs.items() if job.finished is None or now - job.finished < 3600}
             return self.jobs.get(key)
 
-    def start_job(self, target, name, options, cleanup=None, digest=None):
+    def start_job(self, target, name, options, cleanup=None, digest=None, task=None):
         # The caller owns analysis_lock; the worker assumes that ownership until cleanup.
         job = Job(name)
+        job.private = task is not None
         config = self.tool_config
         with self.jobs_lock:
             while len(self.jobs) >= 2:
@@ -58,8 +62,11 @@ class Server(ThreadingHTTPServer):
         def work():
             status, result, error = 'failed', None, None
             try:
-                result = analyze(target, display_name=name, tool_config=config, progress=job.update,
-                                 cancel=job.cancel.is_set, input_digest=digest, **options)
+                if task:
+                    result = task(progress=job.update, cancel=job.cancel.is_set)
+                else:
+                    result = analyze(target, display_name=name, tool_config=config, progress=job.update,
+                                     cancel=job.cancel.is_set, input_digest=digest, **options)
                 status = 'completed'
             except AnalysisCancelled:
                 status = 'cancelled'
@@ -145,6 +152,8 @@ class Handler(BaseHTTPRequestHandler):
             job = self.server.get_job(parts[2])
             if not job:
                 self.respond(404, {'error': 'Job not found or expired'}); return
+            if getattr(job, 'private', False) and not authorized(self):
+                self.respond(403, {'error': 'Desktop token required'}); return
             if len(parts) == 4:
                 if job.status != 'completed':
                     self.respond(409, {'error': 'Report is not ready', 'status': job.status}); return
@@ -152,7 +161,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.respond(200, job.snapshot())
             return
-        names = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/icon.svg': 'icon.svg'}
+        names = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/icon.svg': 'icon.svg', '/workspace.js': 'workspace.js'}
         if path not in names:
             self.respond(404, {'error': 'Not found'}); return
         file = STATIC / names[path]
@@ -168,10 +177,10 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError('External decoders are disabled. Start with --allow-decoders.')
         return options
 
-    def read_json(self):
+    def read_json(self, limit=16384):
         length = int(self.headers.get('Content-Length', '-1'))
-        if not 0 <= length <= 16384:
-            raise ValueError('Settings request limit is 16 KiB')
+        if not 0 <= length <= limit:
+            raise ValueError(f'JSON request limit is {limit // 1024} KiB')
         result = json.loads(self.rfile.read(length) or b'{}')
         if not isinstance(result, dict):
             raise ValueError('Expected a JSON object')
@@ -183,6 +192,8 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get('Origin')
         if (origin and urlsplit(origin).netloc != self.headers.get('Host')) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
             self.respond(403, {'error': 'Cross-origin requests are not allowed'}); return
+        if path == '/api/workspace':
+            workspace_request(self); return
         desktop_request = path in {'/api/tools', '/api/choose-tool', '/api/local-file'}
         expected = 'application/json' if desktop_request else 'application/octet-stream'
         if self.headers.get('Content-Type', '').split(';')[0] != expected:
@@ -201,6 +212,8 @@ class Handler(BaseHTTPRequestHandler):
                 job = self.server.get_job(parts[2])
                 if not job:
                     self.respond(404, {'error': 'Job not found'}); return
+                if getattr(job, 'private', False) and not authorized(self):
+                    self.respond(403, {'error': 'Desktop token required'}); return
                 job.request_cancel()
                 self.respond(200, job.snapshot()); return
             if path not in {'/api/analyze', '/api/demo', '/api/jobs', '/api/tools', '/api/choose-tool', '/api/local-file'}:
@@ -223,16 +236,16 @@ class Handler(BaseHTTPRequestHandler):
             if desktop_request:
                 body = self.read_json()
                 if path == '/api/tools':
-                    if not all(isinstance(body.get(key, ''), str) for key in ('apktool_jar', 'java')):
+                    if not all(isinstance(body.get(key, ''), str) for key in ToolConfig.__dataclass_fields__):
                         raise ValueError('Tool paths must be strings')
-                    config = ToolConfig(body.get('apktool_jar', ''), body.get('java', ''))
+                    config = ToolConfig(**{key: body.get(key, '') for key in ToolConfig.__dataclass_fields__})
                     config.save()
                     self.server.tool_config = config
                     result = {'tools': config.status(private=True), 'checks': config.probe()}
                 elif path == '/api/choose-tool':
                     kind = body.get('kind')
-                    if kind not in {'apktool', 'java'}:
-                        raise ValueError('Choose apktool or java')
+                    if kind not in {'apktool', 'java', 'jadx', 'il2cpp', 'dotnet', 'apksigner', 'zipalign'}:
+                        raise ValueError('Choose a supported tool')
                     result = {'path': choose_file(kind)}
                 else:
                     chosen = choose_file('input')

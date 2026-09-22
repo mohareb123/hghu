@@ -19,7 +19,7 @@ function notice(text, error = false) {
 }
 function setBusy(value) {
   busy = value;
-  for(const id of ['choose','demo','decoder','profile','scan-mode','open-local','save-tools','pick-jar','pick-java']) $(id).disabled=value;
+  for(const id of ['choose','demo','decoder','profile','scan-mode','open-local','save-tools','pick-jar','pick-java','pick-jadx','pick-il2cpp','pick-dotnet','pick-apksigner','pick-zipalign']) $(id).disabled=value;
   $('cancel-job').disabled=!value && !activeJob;
   $('resume-job').hidden=value || !activeJob;
   $('dropzone').classList.toggle('busy', value);
@@ -47,6 +47,13 @@ async function load(file, demo = false, local = false, resume = false) {
       if(cancelRequested) await cancelActiveJob();
       data=await watchJob(activeJob);
     }
+    showReport(data,demo);
+  } catch (error) {
+    notice(error.message,true);
+    progressText(activeJob ? 'تعذر تحديث الحالة — قد تستمر المهمة على الخادم' : cancelRequested ? 'تم الإلغاء' : 'لم يكتمل التحليل',error.message,null);
+  } finally { setBusy(false); $('file-input').value = ''; }
+}
+function showReport(data,demo=false){
     report = data; page = 0; selected = null; copyText = '';
     $('copy').disabled = false;
     $('export').disabled = false;
@@ -71,11 +78,8 @@ async function load(file, demo = false, local = false, resume = false) {
     notice(demo ? 'تقرير تجريبي من ملف Smali صناعي. كل النتائج مستخرجة فعليًا من الملف.' : `اكتمل التحليل: ${summary.findings} نتيجة عامة و${summary.research_findings} مؤشر في خطة البحث. ${data.warnings.length ? 'راجع ملاحظات التحليل أدناه.' : ''}`);
     progressText('اكتمل التحليل',`${summary.files_scanned} ملف مفحوص · ${summary.skipped_media || 0} ملف وسائط متخطّى · ${summary.elapsed_seconds} ثانية تحليل`,100);
     render();
-  } catch (error) {
-    notice(error.message,true);
-    progressText(activeJob ? 'تعذر تحديث الحالة — قد تستمر المهمة على الخادم' : cancelRequested ? 'تم الإلغاء' : 'لم يكتمل التحليل',error.message,null);
-  } finally { setBusy(false); $('file-input').value = ''; }
 }
+
 function rows() {
   if (!report) return [];
   const query = $('search').value.trim().toLowerCase(), confidence = $('confidence').value;
@@ -281,17 +285,19 @@ function applyStatus(status){
   $('open-local').hidden=!status.native_picker;
   $('pick-jar').hidden=$('pick-java').hidden=!status.native_picker;
   if(status.desktop_tools){$('apktool-path').value=status.tools.apktool_jar || '';$('java-path').value=status.tools.java_path || '';}
+  for(const key of ['jadx','il2cpp','dotnet','apksigner','zipalign']){ $(key+'-path').value=status.tools[key+'_path'] || ''; $('pick-'+key).hidden=!status.native_picker; }
+  document.dispatchEvent(new CustomEvent('protohunter-status',{detail:status}));
 }
 fetch('/api/status').then(responseJSON).then(applyStatus).catch(()=>notice('تعذّر الاتصال بخادم التحليل.',true));
-for(const [id,kind,target] of [['pick-jar','apktool','apktool-path'],['pick-java','java','java-path']]) $(id).addEventListener('click',async()=>{
+for(const [id,kind,target] of [['pick-jar','apktool','apktool-path'],['pick-java','java','java-path'],...['jadx','il2cpp','dotnet','apksigner','zipalign'].map(key=>['pick-'+key,key,key+'-path'])]) $(id).addEventListener('click',async()=>{
   setBusy(true);
   try{const choice=await desktopRequest('/api/choose-tool',{kind});if(choice.path)$(target).value=choice.path;}
   catch(error){$('tool-result').textContent=error.message;}finally{setBusy(false);}
 });
 $('save-tools').addEventListener('click',async()=>{
-  setBusy(true);$('tool-result').textContent='فحص Java وApktool…';
+  setBusy(true);$('tool-result').textContent='فحص Java وApktool وJADX…';
   try{
-    const result=await desktopRequest('/api/tools',{apktool_jar:$('apktool-path').value.trim(),java:$('java-path').value.trim()});
+    const result=await desktopRequest('/api/tools',{apktool_jar:$('apktool-path').value.trim(),java:$('java-path').value.trim(),...Object.fromEntries(['jadx','il2cpp','dotnet','apksigner','zipalign'].map(key=>[key,$(key+'-path').value.trim()]))});
     $('tool-result').textContent=result.checks.map(c=>`${c.tool}: ${c.ok?'OK':'ERROR'}\n${c.output}`).join('\n') || 'Java غير موجود. ملف JAR يحتاج Java Runtime؛ ثبّت إصدارًا متوافقًا مع نسخة Apktool.';
     applyStatus(await responseJSON(await fetch('/api/status')));
     if(result.tools.apktool && result.checks.every(c=>c.ok))notice('تم الحفظ. اختر «Apktool · Smali» من قائمة فك الكود لتفعيله.');

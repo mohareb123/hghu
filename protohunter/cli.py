@@ -6,6 +6,8 @@ import sys
 from . import __version__
 from .analyzer import analyze
 from .tooling import ToolConfig
+from .projects import ProjectStore
+import os
 
 
 def main(argv=None):
@@ -24,19 +26,52 @@ def main(argv=None):
     web.add_argument("--allow-decoders", action="store_true", help="Permit external JADX/Apktool on uploads")
     doctor = sub.add_parser("doctor", help="Check optional decoders")
     web.add_argument("--desktop-tools", action="store_true", help="Enable trusted loopback-only tool settings and Windows local picker")
-    for command in (scan, web, doctor):
+    workspace = sub.add_parser("workspace", help="Persistent JADX / Apktool / IL2CPP projects")
+    workspace.add_argument("--root", type=Path, help="Workspace directory; defaults to local app data")
+    actions = workspace.add_subparsers(dest="action", required=True)
+    create = actions.add_parser("create"); create.add_argument("input", type=Path)
+    actions.add_parser("list")
+    show = actions.add_parser("show"); show.add_argument("project")
+    run = actions.add_parser("run"); run.add_argument("project")
+    run.add_argument("operation", choices=["jadx", "apktool", "il2cpp", "inspect", "build", "sign"])
+    run.add_argument("--unit", default="main")
+    for flag in ("binary-unit", "binary-member", "metadata-unit", "metadata-member", "keystore", "alias"):
+        run.add_argument("--" + flag)
+    run.add_argument("--store-pass-env", default="PROTOHUNTER_SIGN_STORE_PASS")
+    run.add_argument("--key-pass-env", default="PROTOHUNTER_SIGN_KEY_PASS")
+    for command in (scan, web, doctor, workspace):
         command.add_argument("--apktool-jar", help="Path to a trusted apktool.jar (no wrapper required)")
         command.add_argument("--java", help="Path to java.exe or java")
+        for tool in ("jadx", "il2cpp", "dotnet", "apksigner", "zipalign"):
+            command.add_argument("--" + tool, help="Trusted local path for " + tool)
     args = parser.parse_args(argv)
     try:
         saved = ToolConfig.load()
-        config = ToolConfig(args.apktool_jar if args.apktool_jar is not None else saved.apktool_jar,
-                            args.java if args.java is not None else saved.java)
+        config = ToolConfig(**{key: getattr(args, key) if getattr(args, key) is not None else getattr(saved, key)
+                               for key in ToolConfig.__dataclass_fields__})
         if args.command == "serve":
             from .web import serve
             serve(args.host, args.port, args.allow_decoders, tool_config=config, desktop_tools=args.desktop_tools)
         elif args.command == "doctor":
             print(json.dumps({"python": sys.version.split()[0], "optional_decoders": config.status(private=True)}, indent=2))
+        elif args.command == "workspace":
+            store = ProjectStore(args.root)
+            if args.action == "list":
+                result = store.list()
+            elif args.action == "create":
+                result = store.create(args.input)
+            elif args.action == "show":
+                result = store.load(args.project)
+            else:
+                options = {}
+                if args.operation == "il2cpp":
+                    options = {key: {"unit": getattr(args, key + "_unit"), "member": getattr(args, key + "_member")}
+                               for key in ("binary", "metadata")}
+                elif args.operation == "sign":
+                    options = dict(keystore=args.keystore or "", alias=args.alias or "",
+                                   store_pass=os.environ.get(args.store_pass_env, ""), key_pass=os.environ.get(args.key_pass_env, ""))
+                result = store.run(args.project, args.operation, args.unit, config=config, **options)
+            print(json.dumps(result, ensure_ascii=True, indent=2))
         else:
             result = analyze(args.input, args.decode, profile=args.profile, scan_mode=args.scan_mode, tool_config=config)
             encoded = json.dumps(result, ensure_ascii=True, indent=2)

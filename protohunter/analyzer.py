@@ -48,7 +48,7 @@ SHORT_MARKERS = tuple({x.lower().encode() for terms in TARGETS.values() for x in
 SMALL_MEMBER = 2 * 1024**2
 
 TEXT_EXT = {".smali", ".java", ".kt", ".proto", ".xml", ".json", ".txt", ".yaml", ".yml",
-            ".properties", ".conf", ".cfg", ".ini", ".js", ".html", ".csv", ".gradle"}
+            ".cs", ".h", ".c", ".cpp", ".properties", ".conf", ".cfg", ".ini", ".js", ".html", ".csv", ".gradle"}
 SCHEMES = "https?|wss?|grpcs?|tcp|udp|mqtts?|amqps?|ftps?|ssh|tls|ssl|dns|rtsp|rtmp|redis|mongodb|postgres(?:ql)?"
 URL_RE = re.compile(r"\b(?:" + SCHEMES + r")://[^\s\x00-\x20<>\"'`\\{}]+", re.I)
 IP_RE = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?![\w.])")
@@ -105,7 +105,7 @@ class Analyzer:
                            "The Free Fire research plan contains user-specified search targets, not a validated build-specific schema.",
                            "A full byte hash does not imply complete semantic analysis or decryption. Consult the coverage ledger.",
                            "ELF symbols, string co-location and server role hints do not establish runtime call relationships.",
-                           "IL2CPP support reads standard metadata string tables only, not C# types or encrypted/custom layouts.",
+                           "The built-in IL2CPP parser reads standard string tables only. External Il2CppDumper type layouts are not original C# method bodies.",
                            "Native embedded descriptors are bounded carving candidates; completeness is not guaranteed.",
                            "Static evidence is not proof that a server is active or a protocol is used at runtime.",
                            "Encrypted, obfuscated or dynamically assembled values may not be recoverable.",
@@ -679,7 +679,7 @@ class Analyzer:
                 "locations_truncated": len(evidence) > 200,
                 "note": "Role hints come from names only. Protocol markers merely share a source file; no call/data-flow relationship is proven."})
 
-    def run(self, path, decode="none", display_name=None):
+    def run(self, path, decode="none", display_name=None, extra_inputs=None):
         path = Path(path)
         if decode not in {"none", "auto", "jadx", "apktool", "both"}:
             raise ValueError("Unsupported decoder")
@@ -726,6 +726,13 @@ class Analyzer:
                     self.warn("External decoders are only used for APK/DEX input or APK members of bundles.")
             elif path.suffix.lower() in {".apk", ".dex", ".aab", ".xapk", ".apks"}:
                 self.warn("String/asset analysis only. Enable external decoding for Java/Smali output (APK/DEX).")
+        if extra_inputs:
+            self.report['input']['derived_views'] = []
+            for label, directory in extra_inputs:
+                self.check()
+                self.directory(Path(directory), prefix=label + '/')
+                self.report['input']['derived_views'].append(label)
+            self.warn('Derived decompiler views share extraction budgets; their bytes are not unique original-package bytes.')
         self.emit("reporting", self.report["input"]["name"])
         self.correlate_servers()
         self.research.finish(self.report)
@@ -753,5 +760,5 @@ class Analyzer:
 
 
 def analyze(path, decode="none", display_name=None, profile="standard", scan_mode="deep", tool_config=None,
-            progress=None, cancel=None, input_digest=None):
-    return Analyzer(profile, scan_mode, tool_config, progress, cancel, input_digest).run(path, decode, display_name)
+            progress=None, cancel=None, input_digest=None, extra_inputs=None):
+    return Analyzer(profile, scan_mode, tool_config, progress, cancel, input_digest).run(path, decode, display_name, extra_inputs=extra_inputs)
