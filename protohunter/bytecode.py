@@ -12,6 +12,9 @@ def smali_events(text, source, check=lambda: None):
     for number, raw in enumerate(text.splitlines(), 1):
         if number % 256 == 0: check()
         line = raw.strip()
+        if len(line) > 8192:
+            yield 'unresolved', method or '<unknown>', 'Smali line exceeds graph parser limit (8192)', {'source':source, 'line':number, 'offset':None, 'format':'smali'}
+            continue
         # Comments and quoted literals cannot manufacture instructions.
         if line.startswith('.annotation') or line.startswith('.subannotation'): annotation += 1
         if annotation:
@@ -20,7 +23,8 @@ def smali_events(text, source, check=lambda: None):
         line = line.split('#', 1)[0].strip() if '"' not in line else line
         location = {'source': source, 'line': number, 'offset': None, 'format': 'smali'}
         if line.startswith('.class '):
-            m = re.search(r'L[^;\s]+;', line); owner = m.group() if m else None
+            value = line.split()[-1]
+            owner = value if re.fullmatch(r'L[^;\s]+;', value) else None
         elif line.startswith('.super ') and owner:
             yield 'class', owner, line.split()[-1], location
         elif line.startswith('.field ') and owner:
@@ -39,10 +43,10 @@ def smali_events(text, source, check=lambda: None):
             if line.startswith(('.end packed-switch', '.end sparse-switch', '.end array-data')): payload = False
             if payload: continue
             if re.match(r'^invoke-[\w/-]+\s+\{[^}]*\},\s*L', line):
-                m = METHOD.search(line)
+                m = METHOD.match(line.split('},', 1)[-1].strip())
                 if m: yield 'calls', method, m.group(1), location
             elif re.match(r'^(?:iget|iput|sget|sput)(?:-[\w]+)?\s+', line):
-                m = FIELD.search(line)
+                m = FIELD.match(line.rsplit(',', 1)[-1].strip())
                 if m: yield 'field_access', method, m.group(1), location
             elif re.match(r'^(?:new-instance|check-cast|const-class)\s+', line):
                 m = re.search(r',\s*(L[^;\s]+;)', line)

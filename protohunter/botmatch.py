@@ -10,8 +10,8 @@ MAX_FILES = 500
 MAX_BYTES = 8 * 1024**2
 MAX_FILE = 512 * 1024
 EXTENSIONS = {'.py', '.js', '.ts', '.java', '.kt', '.cs', '.go', '.rs', '.c', '.h', '.cpp', '.proto', '.smali', '.json', '.txt', '.lua', '.yaml', '.ini'}
-DECL = re.compile(r'(?m)^\s*(?:(?:public|private|export|abstract|final|data|internal)\s+)*(?:class|message|struct)\s+(\w+)|^\s*\.class\s+.*?L([^;]+);')
-FUNCTION = re.compile(r'\b(?:def|function|func|fn)\s+(\w+)|\b(\w+)\s*\([^;{}\n]*\)\s*\{')
+DECL = re.compile(r'(?m)^[ \t]*(?:(?:public|private|export|abstract|final|data|internal)\s+)*(?:class|message|struct)\s+(\w+)|^[ \t]*\.class[ \t]+.*?L([^;]+);')
+FUNCTION = re.compile(r'\b(?:def|function|func|fn)\s+(\w+)|\b(\w+)\s*\([^;{}\n]{0,1024}\)\s*\{')
 FIELD = re.compile(r'\b([A-Za-z_]\w*)\s*(?::[\w<>\[\].]+)?\s*=|\b(?:set|get|has)([A-Z]\w*)\s*\(')
 OPCODE = re.compile(r'\b(?:opcode|packet_?id|command_?id)\s*(?::[\w.]+)?\s*=\s*(0x[\da-f]+|\d+)\b', re.I)
 

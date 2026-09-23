@@ -146,6 +146,12 @@ class InvestigationTests(unittest.TestCase):
         item = next(x for x in result['protocol_report']['auth'] if x['name']=='Lsample/CSMajorLoginReq;')
         self.assertFalse(item['network'])
 
+    def test_oversized_instruction_line_is_reported_not_parsed(self):
+        source = '.class public LX;\n.method run()V\ninvoke-static {}, ' + 'L'*100000 + '\n.end method'
+        result = self.report({'long.smali':source})
+        self.assertTrue(result['protocol_report']['meta']['truncated'])
+        self.assertFalse(any(e['kind']=='calls' for e in result['dependency_graph']['edges']))
+
     def test_graph_budget_and_cancellation(self):
         with patch.dict(LIMITS, nodes=3):
             data = self.report({'Login.smali':LOGIN})
