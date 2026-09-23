@@ -17,6 +17,7 @@ import uuid
 import zipfile
 
 from .analyzer import analyze
+from .exports import export_directory
 from .runtime import AnalysisCancelled, stop_decoder
 from .tooling import ToolConfig, settings_path
 
@@ -330,6 +331,8 @@ class ProjectStore:
                     report = analyze(source, display_name=data['name'] + ' / ' + unit['id'], profile='games', scan_mode='deep', progress=progress, cancel=cancel, extra_inputs=views)
                     report['warnings'].append('JADX/IL2CPP views derive from the imported original; Apktool sources may contain edits. These are distinct static views, not a rebuilt runtime trace.')
                     atomic_json(folder / 'report.json', report)
+                    export_directory(report, folder / 'sections', cancel=cancel, progress=progress)
+                    run['sections'] = run['path'] + '/sections'
                 elif operation == 'build':
                     if unit_id not in data['decoded']:
                         raise ValueError('Decode this APK unit using Apktool before building')

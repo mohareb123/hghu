@@ -96,6 +96,13 @@ doNotCompress:
             result = json.loads(command(prefix + ['run', project_id, operation], env, timeout=300))
             assert result['runs'][-1]['status'] == 'completed', result
         workspace = projects / project_id
+        inspection = next(run for run in result['runs'] if run['operation'] == 'inspect')
+        sections = workspace / inspection['sections']
+        report = json.loads((workspace / inspection['path'] / 'report.json').read_text(encoding='utf-8'))
+        for stem, key in (('server', 'servers'), ('protocol', 'protocols'), ('source', 'sources')):
+            assert json.loads((sections / (stem + '.json')).read_text(encoding='utf-8')) == report[key]
+            assert (sections / (stem + '.txt')).is_file()
+        assert json.loads((sections / 'index.json').read_text(encoding='utf-8'))['format'] == 'protohunter-sections-v1'
         source = workspace / result['decoded']['main'] / 'smali/com/protohunter/fixture/Probe.smali'
         assert 'CSMajorLoginReq' in source.read_text(encoding='utf-8')
         java_sources = list(workspace.glob('runs/*/jadx/sources/com/protohunter/fixture/Probe.java'))

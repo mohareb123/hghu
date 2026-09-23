@@ -8,6 +8,7 @@ from .analyzer import analyze
 from .tooling import ToolConfig, app_directory
 from .bundle import verify as verify_bundle
 from .projects import ProjectStore
+from .exports import export_directory
 import os
 
 
@@ -20,6 +21,7 @@ def main(argv=None):
     scan.add_argument("--scan-mode", choices=["fast", "deep"], default="deep", help="Fast skips media/fonts/textures; deep scans them")
     scan.add_argument("--profile", choices=["standard", "games"], default="standard", help="Games: 2 GiB inputs, 512 MiB members, native and split-package support")
     scan.add_argument("--decode", choices=["none", "auto", "jadx", "apktool", "both"], default="none")
+    scan.add_argument("--sections-dir", type=Path, help="Write all sections as TXT+JSON to a NEW directory; automatic alongside -o")
     scan.add_argument("-o", "--output", type=Path, help="Write JSON report (otherwise stdout)")
     web = sub.add_parser("serve", help="Open the local web workbench")
     web.add_argument("--host", default="127.0.0.1")
@@ -82,6 +84,20 @@ def main(argv=None):
         else:
             result = analyze(args.input, args.decode, profile=args.profile, scan_mode=args.scan_mode, tool_config=config)
             encoded = json.dumps(result, ensure_ascii=True, indent=2)
+            sections_dir = args.sections_dir
+            if args.output and args.output.resolve() == args.input.resolve():
+                raise ValueError("Output must not overwrite the input")
+            if sections_dir is None and args.output:
+                base = args.output.with_name(args.output.stem + '.sections')
+                sections_dir = base
+                number = 2
+                while sections_dir.exists() or sections_dir.is_symlink():
+                    sections_dir = base.with_name(base.name + '-' + str(number)); number += 1
+            if sections_dir and args.output and (sections_dir.resolve() == args.output.resolve() or sections_dir.resolve() in args.output.resolve().parents):
+                raise ValueError("JSON report must be outside the section output directory")
+            if sections_dir:
+                export_directory(result, sections_dir)
+                print(f"Sections (TXT + JSON): {sections_dir}", file=sys.stderr)
             if args.output:
                 if args.output.resolve() == args.input.resolve():
                     raise ValueError("Output must not overwrite the input")

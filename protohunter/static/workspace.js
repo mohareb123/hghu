@@ -119,8 +119,11 @@
     await updateFiles();
     if(opened && !dirty())await open(opened.path);
     if(failure)throw failure;
-    if(operation==='inspect')showReport(await api('report',{unit}));
-    say('اكتملت العملية. الملفات والسجل محفوظان؛ استخدم «فتح مجلد المشروع» للوصول إلى APK والمخرجات.');
+    if(operation==='inspect'){
+      const run=[...project.runs].reverse().find(r=>r.operation==='inspect' && r.unit===unit && r.status==='completed');
+      showReport(await api('report',{unit,run:run.id}),false,{project:project.id,run:run.id});
+    }
+    say(operation==='inspect'?'اكتملت العملية. حُفظ ملف TXT وJSON لكل قسم داخل مجلد sections لهذا الفحص؛ يمكنك تنزيلها بزر «كل الأقسام».':'اكتملت العملية. الملفات والسجل محفوظان؛ استخدم «فتح مجلد المشروع» للوصول إلى APK والمخرجات.');
   })));
   for(const actionName of ['diff','save'])byId('ws-'+actionName).addEventListener('click',()=>action(async()=>{
     const result=await api(actionName,{path:opened.path,text:byId('ws-code').value,sha256:opened.sha256});

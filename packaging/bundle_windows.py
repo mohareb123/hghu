@@ -104,7 +104,7 @@ def assemble():
     config['RequireAnyKey'] = False
     (il2cpp / 'config.json').write_text(json.dumps(config, indent=2), encoding='utf-8')
     for src, dest in [('dist/ProtoHunter.exe', 'ProtoHunter.exe'), ('packaging/README-Complete.md', 'README-FIRST.md'),
-                      ('docs/workspaces.md', 'workspaces.md'), ('LICENSE', 'LICENSE-ProtoHunter.txt'),
+                      ('docs/workspaces.md', 'workspaces.md'), ('docs/section-exports.md', 'section-exports.md'), ('LICENSE', 'LICENSE-ProtoHunter.txt'),
                       ('packaging/bundle.lock.json', 'bundle-provenance.json')]:
         shutil.copy2(ROOT / src, output / dest)
     shutil.copytree(ROOT / 'packaging/licenses', output / 'licenses')

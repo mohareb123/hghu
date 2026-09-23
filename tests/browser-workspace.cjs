@@ -41,6 +41,9 @@ const {chromium}=require('playwright'), {spawn}=require('node:child_process'), p
     assert.ok(await page.locator('#ws-code').evaluate(el=>el.readOnly));
     await run('inspect');
     assert.ok((await page.locator('#report-meta').textContent()).includes('ملف'));
+    const sections=await require('./browser-export-helper.cjs')(page);
+    assert.ok(sections.server.length>0);
+    assert.ok((await page.locator('#ws-message').textContent()).includes('sections'));
     await run('build');
     assert.equal(await page.locator('.ws-file').filter({hasText:'unsigned.apk'}).count(),1);
     await page.locator('.ws-file').filter({hasText:'Example.smali'}).click();

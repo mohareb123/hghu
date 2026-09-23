@@ -56,7 +56,7 @@ def handle(handler):
             result = store.load(project_id)
         elif action == 'report':
             data = store.load(project_id)
-            run = next((r for r in reversed(data['runs']) if r['operation'] == 'inspect' and r['unit'] == body.get('unit') and r['status'] == 'completed'), None)
+            run = next((r for r in reversed(data['runs']) if r['operation'] == 'inspect' and r['unit'] == body.get('unit') and r['status'] == 'completed' and (not body.get('run') or r['id'] == body['run'])), None)
             if not run:
                 raise ValueError('Run inspection first')
             path = store.safe(project_id, run['path'] + '/report.json')

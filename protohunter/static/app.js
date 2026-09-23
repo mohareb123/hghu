@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 const titles = {research:'Login → Session → Game', flow:'مراجع الاستدعاءات — ليست تتبع تشغيل', coverage:'سجل التغطية والملفات المتخطاة', endpoints:'السيرفرات والروابط', protocols:'بروتوكولات الاتصال', protobuf:'Protobuf وgRPC', smali:'فهرس Smali', servers:'تجميع أدلة السيرفرات', native:'Native وUnity/IL2CPP', bundles:'الحزم وSplit APK', sources:'ملفات المصدر'};
 const confidenceLabels = {high:'عالية', medium:'متوسطة', low:'محتمل'};
+let reportOrigin=null;
 let report = null, view = 'endpoints', page = 0, selected = null, busy = false, copyText = '';
 const pageSize = 30;
 let activeJob=null, currentXHR=null, uploadFinished=false, cancelRequested=false, desktopToken=null, serverStatus=null;
@@ -36,27 +37,29 @@ async function load(file, demo = false, local = false, resume = false) {
   notice('الوضع السريع يتخطى الوسائط والخطوط فقط. استخدم العميق لتضمينها.');
   try {
     const params = new URLSearchParams({name: demo ? 'demo.smali' : file?.name || 'local.apk', decode: demo ? 'none' : $('decoder').value, profile:$('profile').value, scan_mode:$('scan-mode').value});
-    let data;
-    if(resume){data=await watchJob(activeJob);}
+    let data, origin=null;
+    if(resume){origin={job:activeJob};data=await watchJob(activeJob);}
     else if(demo){
       data=await responseJSON(await fetch('/api/demo?'+params,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:new Uint8Array()}));
     }else{
       const accepted=local ? await desktopRequest('/api/local-file?'+params,{}) : await uploadFile('/api/jobs?'+params,file);
       if(accepted.cancelled) throw new Error('تم إلغاء اختيار الملف.');
-      activeJob=accepted.job_id;
+      activeJob=accepted.job_id;origin={job:accepted.job_id};
       if(cancelRequested) await cancelActiveJob();
       data=await watchJob(activeJob);
     }
-    showReport(data,demo);
+    showReport(data,demo,origin);
   } catch (error) {
     notice(error.message,true);
     progressText(activeJob ? 'تعذر تحديث الحالة — قد تستمر المهمة على الخادم' : cancelRequested ? 'تم الإلغاء' : 'لم يكتمل التحليل',error.message,null);
   } finally { setBusy(false); $('file-input').value = ''; }
 }
-function showReport(data,demo=false){
+function showReport(data,demo=false,origin=null){
+    reportOrigin=origin;
     report = data; page = 0; selected = null; copyText = '';
     $('copy').disabled = false;
     $('export').disabled = false;
+    $('export-sections').disabled = false;
     $('search').value = ''; $('confidence').value = 'all'; $('relevance-filter').value='all'; $('stage-filter').value='all';
     $('upload-title').textContent = data.input.name;
     $('upload-description').textContent = demo ? 'مثال صناعي للتجربة فقط — العناوين ليست سيرفرات حقيقية.' : 'اكتمل التحليل. اختر نتيجة لفحص الدليل، أو ارفع ملفًا آخر.';
@@ -213,6 +216,27 @@ $('export').addEventListener('click',() => {
   const link = node('a'); link.href=url; link.download=report.input.name.replace(/[^a-zA-Z0-9._-]/g,'_') + '.protohunter.json';
   document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url),1000);
 });
+$('export-sections').addEventListener('click',async()=>{
+  if(!report)return;
+  const current=report, origin=reportOrigin, button=$('export-sections');
+  button.disabled=true;button.textContent='جارٍ تجهيز ملفات الأقسام…';
+  const request=payload=>fetch('/api/export-sections',{method:'POST',headers:{'Content-Type':'application/json',...(desktopToken?{'X-ProtoHunter-Config-Token':desktopToken}:{})},body:JSON.stringify(payload)});
+  async function fallback(){
+    const payload=JSON.stringify({report:current});
+    if(new Blob([payload]).size>64*1024**2)throw new Error('التقرير أكبر من حد تنزيل ZIP عبر المتصفح؛ استخدم مجلد sections في المشروع أو التصدير عبر CLI.');
+    return fetch('/api/export-sections',{method:'POST',headers:{'Content-Type':'application/json'},body:payload});
+  }
+  try{
+    let response=origin ? await request(origin) : await fallback();
+    if(response.status===404 && origin?.job)response=await fallback();
+    if(!response.ok)await responseJSON(response);
+    const url=URL.createObjectURL(await response.blob());
+    const link=node('a');link.href=url;link.download=current.input.name.replace(/[^a-zA-Z0-9._-]/g,'_').slice(0,80)+'.sections.zip';
+    document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
+    notice('تم تجهيز ZIP: ملف TXT وJSON لكل قسم، مع index.json. التصدير يشمل كل التقرير بغض النظر عن فلاتر العرض.');
+  }catch(error){notice('تعذّر تصدير الأقسام: '+error.message,true);}
+  finally{button.disabled=false;button.textContent='↓ كل الأقسام TXT + JSON';}
+});
 $('copy').addEventListener('click',async () => {
   try { await navigator.clipboard.writeText(copyText); $('copy').textContent='تم النسخ'; setTimeout(() => {$('copy').textContent='نسخ';},1500); }
   catch { notice('النسخ غير متاح في هذا المتصفح. يمكنك تحديد النص أو تصدير JSON.',true); }
@@ -250,7 +274,7 @@ async function cancelActiveJob(){
   return responseJSON(await fetch('/api/jobs/'+activeJob+'/cancel',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:new Uint8Array()}));
 }
 async function watchJob(id){
-  const stages={starting:'بدء التحليل',hashing:'حساب بصمة الملف',enumerating:'حصر محتويات الحزمة',expanding:'قراءة وفك عضو من الحزمة',scanning:'فحص الأدلة',decoding:'فك الكود بالمحرك الخارجي',reporting:'تجميع التقرير',cleaning:'تنظيف الملفات المؤقتة'};
+  const stages={starting:'بدء التحليل',hashing:'حساب بصمة الملف',enumerating:'حصر محتويات الحزمة',expanding:'قراءة وفك عضو من الحزمة',scanning:'فحص الأدلة',decoding:'فك الكود بالمحرك الخارجي',reporting:'تجميع التقرير',exporting:'تصدير ملفات الأقسام',cleaning:'تنظيف الملفات المؤقتة'};
   let failures=0;
   while(true){
     let status;

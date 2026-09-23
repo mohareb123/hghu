@@ -14,6 +14,7 @@ from . import __version__
 from .analyzer import MAX_INPUT, analyze, profile_limits
 from .dialogs import choose_file
 from .jobs import Job
+from .export_api import handle as export_request
 from .runtime import AnalysisCancelled
 from .tooling import ToolConfig
 from .projects import ProjectStore
@@ -39,6 +40,7 @@ class Server(ThreadingHTTPServer):
         self.desktop_tools = desktop_tools
         self.config_token = secrets.token_urlsafe(24)
         self.analysis_lock = threading.BoundedSemaphore(1)
+        self.export_lock = threading.BoundedSemaphore(1)
         self.projects = ProjectStore(projects_root)
 
     def get_job(self, key):
@@ -192,6 +194,8 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get('Origin')
         if (origin and urlsplit(origin).netloc != self.headers.get('Host')) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
             self.respond(403, {'error': 'Cross-origin requests are not allowed'}); return
+        if path == '/api/export-sections':
+            export_request(self); return
         if path == '/api/workspace':
             workspace_request(self); return
         desktop_request = path in {'/api/tools', '/api/choose-tool', '/api/local-file'}

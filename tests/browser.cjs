@@ -10,9 +10,10 @@ const assert = require('node:assert/strict');
   });
   try {
     const page = await browser.newPage({viewport: {width: 1440, height: 1080}, acceptDownloads: true});
-    const errors = [];
+    const errors = []; let expected404=false;
+    const exportSections=require('./browser-export-helper.cjs');
     page.on('pageerror', error => errors.push(error.message));
-    page.on('console', message => {if (message.type() === 'error') errors.push(message.text());});
+    page.on('console', message => {if (message.type() === 'error' && !expected404) errors.push(message.text());});
     await page.goto(process.env.PROTOHUNTER_URL || 'http://127.0.0.1:8765');
     await page.click('#demo');
     await page.waitForFunction(() => document.querySelector('#stat-endpoints').textContent !== '—');
@@ -34,6 +35,11 @@ const assert = require('node:assert/strict');
     assert.ok(download.suggestedFilename().endsWith('.json'));
     const report = JSON.parse(require('node:fs').readFileSync(await download.path(), 'utf8'));
     assert.equal(report.input.demo, true);
+    await page.fill('#search','no-matching-results-123');
+    const demoSections=await exportSections(page);
+    assert.deepEqual(demoSections.server,report.servers);
+    assert.deepEqual(demoSections.protocol,report.protocols);
+    await page.fill('#search','');
     await page.setInputFiles('#file-input', {
       name: 'client.java', mimeType: 'text/plain',
       buffer: Buffer.from('class Client { String u = "https://safe.example.com/api"; String x = "<img src=x onerror=alert(1)>"; }'),
@@ -87,6 +93,21 @@ sys.stdout.buffer.write(zip_bytes({
     const researchReport=JSON.parse(require('node:fs').readFileSync(await researchDownload.path(),'utf8'));
     assert.equal(researchReport.coverage_summary.semantic_completeness_guaranteed,false);
     assert.equal(researchReport.flow[0].runtime_transition_proven,false);
+    const jobSections=await exportSections(page);
+    assert.deepEqual(jobSections.server,researchReport.servers);
+    assert.deepEqual(jobSections.protocol,researchReport.protocols);
+    let fallbackRequests=0;
+    await page.route('**/api/export-sections', async route=>{
+      fallbackRequests++;
+      if(route.request().postDataJSON().job)await route.fulfill({status:404,contentType:'application/json',body:JSON.stringify({error:'expired'})});
+      else await route.continue();
+    });
+    expected404=true;
+    const expiredSections=await exportSections(page);
+    expected404=false;
+    assert.equal(fallbackRequests,2);
+    assert.deepEqual(expiredSections.server,researchReport.servers);
+    await page.unroute('**/api/export-sections');
     await page.click('[data-view="research"]');
     await page.selectOption('#relevance-filter','all');
     if (process.env.PROTOHUNTER_SCREENSHOTS) {
