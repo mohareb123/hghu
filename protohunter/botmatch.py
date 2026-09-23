@@ -10,7 +10,7 @@ MAX_FILES = 500
 MAX_BYTES = 8 * 1024**2
 MAX_FILE = 512 * 1024
 EXTENSIONS = {'.py', '.js', '.ts', '.java', '.kt', '.cs', '.go', '.rs', '.c', '.h', '.cpp', '.proto', '.smali', '.json', '.txt', '.lua', '.yaml', '.ini'}
-DECL = re.compile(r'(?m)^[ \t]*(?:(?:public|private|export|abstract|final|data|internal)\s+)*(?:class|message|struct)\s+(\w+)|^[ \t]*\.class[ \t]+.*?L([^;]+);')
+DECL = re.compile(r'(?m)^[ \t]*(?:(?:public|private|export|abstract|final|data|internal)\s+)*(?:class|message|struct)\s+(\w+)|^[ \t]*\.class[ \t]+[^\r\n;]{0,512}?\bL([^;\r\n]{1,512});')
 FUNCTION = re.compile(r'\b(?:def|function|func|fn)\s+(\w+)|\b(\w+)\s*\([^;{}\n]{0,1024}\)\s*\{')
 FIELD = re.compile(r'\b([A-Za-z_]\w*)\s*(?::[\w<>\[\].]+)?\s*=|\b(?:set|get|has)([A-Z]\w*)\s*\(')
 OPCODE = re.compile(r'\b(?:opcode|packet_?id|command_?id)\s*(?::[\w.]+)?\s*=\s*(0x[\da-f]+|\d+)\b', re.I)
@@ -76,6 +76,7 @@ def fingerprints(files):
         if not declarations: declarations = list(FUNCTION.finditer(text))
         segments = [(next(x for x in m.groups() if x), m.start(), declarations[i + 1].start() if i + 1 < len(declarations) else len(text)) for i, m in enumerate(declarations)] or [(Path(file['name']).stem, 0, len(text))]
         for name, start, end in segments:
+            if len(name) > 512: raise ValueError('Bot symbol name exceeds 512 characters')
             body = text[start:end]
             records.append({'name': name, 'source': file['name'], 'line': text.count('\n', 0, start) + 1,
                 'fields': sorted({normal(a or b) for a, b in FIELD.findall(body)})[:256],

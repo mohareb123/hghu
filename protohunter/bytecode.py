@@ -28,7 +28,8 @@ def smali_events(text, source, check=lambda: None):
         elif line.startswith('.super ') and owner:
             yield 'class', owner, line.split()[-1], location
         elif line.startswith('.field ') and owner:
-            field = re.search(r'([^\s:]+:[^\s=]+)', line)
+            declaration = line.split('=', 1)[0].split()[-1]
+            field = re.fullmatch(r'([^\s:]+:[^\s=]+)', declaration)
             if field:
                 yield 'field_definition', owner, owner + '->' + field.group(1), location
                 constant = re.search(r'=\s*(-?0x[0-9a-fA-F]{1,8}|-?[0-9]{1,10})\b', line)
@@ -88,6 +89,13 @@ def dex_events(data, source, check=lambda: None, max_instructions=2_000_000):
         if index >= len(values): raise ValueError('Invalid DEX index')
         return values[index]
     types = [get(strings, unpack('I', pos)[0]) for pos in table(64, 4)]
+    if any(len(t) > 1024 for t in types): raise ValueError('DEX type descriptor length limit (1024)')
+    reference_chars = 0
+    def reference(value):
+        nonlocal reference_chars
+        reference_chars += len(value)
+        if len(value) > 8192 or reference_chars > 32 * 1024**2: raise ValueError('DEX constructed-reference budget exceeded')
+        return value
     protos = []; parameter_budget = 0
     for pos in table(72, 12):
         check()
@@ -97,15 +105,15 @@ def dex_events(data, source, check=lambda: None, max_instructions=2_000_000):
             parameter_budget += count
             if count > 4096 or parameter_budget > 1000000: raise ValueError('DEX parameter budget exceeded')
             args = [get(types, unpack('H', params + 4 + i * 2)[0]) for i in range(count)]
-        protos.append('(' + ''.join(args) + ')' + get(types, ret))
+        protos.append(reference('(' + ''.join(args) + ')' + get(types, ret)))
     fields = []
     for pos in table(80, 8):
         owner, kind, name = unpack('HHI', pos)
-        fields.append(get(types, owner) + '->' + get(strings, name) + ':' + get(types, kind))
+        fields.append(reference(get(types, owner) + '->' + get(strings, name) + ':' + get(types, kind)))
     methods = []
     for pos in table(88, 8):
         owner, proto, name = unpack('HHI', pos)
-        methods.append(get(types, owner) + '->' + get(strings, name) + get(protos, proto))
+        methods.append(reference(get(types, owner) + '->' + get(strings, name) + get(protos, proto)))
     budget = 0; member_budget = 0
     for pos in table(96, 32, 20000):
         check()
