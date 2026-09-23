@@ -328,9 +328,11 @@ class ProjectStore:
                         previous = next((r for r in reversed(data['runs'][:-1]) if r['operation'] == tool and r['unit'] == unit_id and r['status'] == 'completed'), None)
                         if previous:
                             views.append((tool, self.safe(project_id, previous['path'] + '/' + tool)))
-                    report = analyze(source, display_name=data['name'] + ' / ' + unit['id'], profile='games', scan_mode='deep', progress=progress, cancel=cancel, extra_inputs=views)
+                    report = analyze(source, display_name=data['name'] + ' / ' + unit['id'], profile='games', scan_mode='deep', progress=progress, cancel=cancel, extra_inputs=views, investigate=options.get('investigate', False))
                     report['warnings'].append('JADX/IL2CPP views derive from the imported original; Apktool sources may contain edits. These are distinct static views, not a rebuilt runtime trace.')
                     atomic_json(folder / 'report.json', report)
+                    if report['protocol_report']['meta']['enabled']:
+                        atomic_json(folder / 'protocol_report.json', report['protocol_report'])
                     export_directory(report, folder / 'sections', cancel=cancel, progress=progress)
                     run['sections'] = run['path'] + '/sections'
                 elif operation == 'build':

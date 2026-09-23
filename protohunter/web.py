@@ -163,7 +163,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.respond(200, job.snapshot())
             return
-        names = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/icon.svg': 'icon.svg', '/workspace.js': 'workspace.js'}
+        names = {'/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/icon.svg': 'icon.svg', '/workspace.js': 'workspace.js', '/investigation.js': 'investigation.js'}
         if path not in names:
             self.respond(404, {'error': 'Not found'}); return
         file = STATIC / names[path]
@@ -172,6 +172,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def validate_options(self, query):
         options = {key: query.get(key, [default])[0] for key, default in [('profile', 'standard'), ('decode', 'none'), ('scan_mode', 'deep')]}
+        mode = query.get('investigate', ['false'])[0]
+        if mode not in {'true', 'false'}: raise ValueError('Invalid investigation option')
+        options['investigate'] = mode == 'true'
         profile_limits(options['profile'])
         if options['scan_mode'] not in {'fast', 'deep'} or options['decode'] not in {'none', 'auto', 'jadx', 'apktool', 'both'}:
             raise ValueError('Unknown scan mode or decoder')
@@ -194,6 +197,9 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get('Origin')
         if (origin and urlsplit(origin).netloc != self.headers.get('Host')) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
             self.respond(403, {'error': 'Cross-origin requests are not allowed'}); return
+        if path == '/api/bot-compare':
+            from .bot_api import handle
+            handle(self); return
         if path == '/api/export-sections':
             export_request(self); return
         if path == '/api/workspace':
@@ -285,7 +291,7 @@ class Handler(BaseHTTPRequestHandler):
                     owned = False; temporary = None
                     self.respond(202, {'job_id': job.id, 'name': filename}); return
                 if path == '/api/demo':
-                    result = analyze(Path(__file__).with_name('demo.smali'))
+                    result = analyze(Path(__file__).with_name('demo.smali'), investigate=options['investigate'])
                     result['input']['demo'] = True
                 else:
                     result = analyze(target, display_name=filename, tool_config=self.server.tool_config,

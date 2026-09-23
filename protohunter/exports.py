@@ -10,6 +10,8 @@ from .runtime import AnalysisCancelled
 
 # Stable filenames are an export contract, independent of localized UI labels.
 SECTIONS = {
+    'protocol_report': ('protocol_report', 'تحقيق البروتوكولات / Protocol investigation'),
+    'dependency_graph': ('dependency_graph', 'مخطط الاعتماد / Dependency graph'),
     'servers': ('server', 'السيرفرات / Server evidence groups'),
     'endpoints': ('endpoint', 'الروابط والعناوين / Endpoints'),
     'protocols': ('protocol', 'البروتوكولات / Protocols'),

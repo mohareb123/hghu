@@ -39,7 +39,9 @@ const {chromium}=require('playwright'), {spawn}=require('node:child_process'), p
     await page.locator('.ws-file').filter({hasText:'dump.cs'}).click();
     await page.waitForFunction(()=>document.querySelector('#ws-code').value.includes('class Player'));
     assert.ok(await page.locator('#ws-code').evaluate(el=>el.readOnly));
+    await page.selectOption('#investigate-mode','true');
     await run('inspect');
+    assert.ok(await page.locator('#investigation-panel').isVisible());
     assert.ok((await page.locator('#report-meta').textContent()).includes('ملف'));
     const sections=await require('./browser-export-helper.cjs')(page);
     assert.ok(sections.server.length>0);

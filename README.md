@@ -1,6 +1,6 @@
 # ProtoHunter
 
-**مساحة محلية لتحليل حزم ألعاب Android وNative/IL2CPP وProtobuf وSmali — v0.8.0.**
+**مساحة محلية لتحليل حزم ألعاب Android وNative/IL2CPP وProtobuf وSmali — v0.9.0.**
 
 أداة أولية عملية (MVP) مستوحاة من أسلوب استكشاف الملفات في [JADX](https://github.com/skylot/jadx)، وليست بديلًا كاملًا عنه أو محرك decompiler جديدًا. تجمع مؤشرات الاتصال وتربطها بالدليل، وتستخدم JADX وApktool اختياريًا لفك التطبيق.
 
@@ -8,6 +8,31 @@
 - CLI للتكامل مع سير عمل التحليل.
 - لا يتم تشغيل التطبيق، أو الاتصال بالعناوين المستخرجة، أو إرسال الملفات لخدمات تحليل خارجية.
 - Python **3.10+**، دون مكتبات تشغيل إلزامية من طرف ثالث.
+
+## Protocol Investigation + BOT MODE — جديد في 0.9
+
+اختر **PROTOCOL INVESTIGATION + BOT MODE** قبل رفع APK/XAPK، أو فعّله عند فحص
+المشروع. يضيف مراجع تعليمات DEX وSmali، مخطط اعتماد، نقاطًا مفسرة وتصنيفًا
+وظيفيًا، وتصدير `protocol_report.json` و`dependency_graph.json` مع TXT أيضًا.
+العرض يبدأ بمرشحي 20+؛ اختر ALL للاطلاع على UNKNOWN وIGNORE. لا تخفي الفلاتر شيئًا
+من ملفات التصدير.
+
+**المجموع الصحيح للأوزان الموجبة 58**: القواعد تُحتسب مرة واحدة، لذلك لا يمكن
+بلوغ REQUIRED 60 أو CRITICAL 80 بهذه الأوزان. لم نضخّم النقاط أو نحولها إلى نسبة.
+HIGH يعني رصد مسار استدعاء ثابت إلى API نقل معروفة، لا تشغيلًا حقيقيًا أو إثبات
+انتقال حقول الرسالة إلى الباكت.
+
+BOT MODE اختياري حسب الطلب الجديد: ملفات/مجلد مصدر من المتصفح، أو مجلد/ZIP عبر
+`--bot-project`. يستخرج بصمات أسماء وحقول ودوال وعناوين وثوابت opcode مرشحة،
+ويعرض CANDIDATE / AMBIGUOUS / MISSING / UNRESOLVED مع أسباب التشابه.
+لا تشغيل لكود البوت ولا اشتراط وجود مشروع سابق للتحليل العادي.
+
+```powershell
+.\ProtoHunter.exe analyze .\game.xapk --profile games --investigate -o .\reports\game.json
+.\ProtoHunter.exe analyze .\game.apk --investigate --bot-project .\my-bot -o .\reports\comparison.json
+```
+
+راجع [دليل التحقيق والنقاط والمخطط وحدود المقارنة](docs/protocol-investigation.md).
 
 ## ملفات منفصلة لكل قسم — جديد في 0.8
 

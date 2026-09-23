@@ -20,7 +20,7 @@ function notice(text, error = false) {
 }
 function setBusy(value) {
   busy = value;
-  for(const id of ['choose','demo','decoder','profile','scan-mode','open-local','save-tools','pick-jar','pick-java','pick-jadx','pick-il2cpp','pick-dotnet','pick-apksigner','pick-zipalign','bundled-tools']) $(id).disabled=value;
+  for(const id of ['choose','demo','decoder','profile','scan-mode','investigate-mode','open-local','save-tools','pick-jar','pick-java','pick-jadx','pick-il2cpp','pick-dotnet','pick-apksigner','pick-zipalign','bundled-tools']) $(id).disabled=value;
   $('cancel-job').disabled=!value && !activeJob;
   $('resume-job').hidden=value || !activeJob;
   $('dropzone').classList.toggle('busy', value);
@@ -36,7 +36,7 @@ async function load(file, demo = false, local = false, resume = false) {
   progressText(local ? 'اختيار الملف من نافذة Windows…' : demo ? 'فحص المثال…' : 'رفع الملف إلى الخادم…', 'الرفع والتحليل مرحلتان منفصلتان.', local || demo ? null : 0);
   notice('الوضع السريع يتخطى الوسائط والخطوط فقط. استخدم العميق لتضمينها.');
   try {
-    const params = new URLSearchParams({name: demo ? 'demo.smali' : file?.name || 'local.apk', decode: demo ? 'none' : $('decoder').value, profile:$('profile').value, scan_mode:$('scan-mode').value});
+    const params = new URLSearchParams({name: demo ? 'demo.smali' : file?.name || 'local.apk', decode: demo ? 'none' : $('decoder').value, profile:$('profile').value, scan_mode:$('scan-mode').value, investigate:$('investigate-mode').value});
     let data, origin=null;
     if(resume){origin={job:activeJob};data=await watchJob(activeJob);}
     else if(demo){
@@ -74,6 +74,7 @@ function showReport(data,demo=false,origin=null){
     for (const key of Object.keys(titles)) $('count-' + key).textContent = data[key].length;
     $('report-meta').textContent = `${data.input.name} · ${summary.files_scanned} ملف · ${summary.elapsed_seconds} ثانية`;
     renderResearchOverview();
+    if(window.renderInvestigation)window.renderInvestigation();
     const warnings = [...data.warnings, ...data.limitations];
     $('warnings').replaceChildren(...warnings.map(text => node('li', '', text)));
     $('warnings-box').hidden = false;

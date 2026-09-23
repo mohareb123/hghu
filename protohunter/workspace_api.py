@@ -38,8 +38,10 @@ def handle(handler):
                     raise ValueError('Enable --allow-decoders for workspace operations')
                 operation = body.get('operation')
                 options = body.get('options', {})
-                if not isinstance(options, dict) or set(options) - {'binary', 'metadata', 'keystore', 'alias', 'store_pass', 'key_pass'}:
+                if not isinstance(options, dict) or set(options) - {'binary', 'metadata', 'keystore', 'alias', 'store_pass', 'key_pass', 'investigate'}:
                     raise ValueError('Unsupported operation options')
+                if 'investigate' in options and not isinstance(options['investigate'], bool):
+                    raise ValueError('investigate must be boolean')
                 for key in ('keystore', 'alias', 'store_pass', 'key_pass'):
                     if key in options and not isinstance(options[key], str):
                         raise ValueError('Signing options must be strings')

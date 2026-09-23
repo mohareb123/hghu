@@ -81,6 +81,11 @@ doNotCompress:
     const-string v0, "https://login.example.invalid/CSMajorLoginReq"
     return-object v0
 .end method
+.method public static login(Ljava/net/Socket;Ljava/net/SocketAddress;)V
+    .locals 0
+    invoke-virtual {p0, p1}, Ljava/net/Socket;->connect(Ljava/net/SocketAddress;)V
+    return-void
+.end method
 ''', encoding='utf-8')
         (fixture / 'assets/UnityFixture/libil2cpp.so').write_bytes(b'\x7fELF' + b'\0' * 60)
         (fixture / 'assets/UnityFixture/global-metadata.dat').write_bytes(struct.pack('<II', 0xFAB11BAF, 999) + b'\0' * 248)
@@ -88,20 +93,28 @@ doNotCompress:
         command([java, '-jar', jar, 'b', fixture, '-p', temp / 'framework', '-o', apk], env)
         with zipfile.ZipFile(apk) as archive:
             assert {'classes.dex', 'AndroidManifest.xml'}.issubset(archive.namelist())
+        bot = temp / 'old.py'; bot.write_text('class Probe:\n pass\n', encoding='utf-8')
+        direct = json.loads(command([exe, 'analyze', apk, '--investigate', '--bot-project', bot], env))
+        assert direct['protocol_report']['meta']['enabled']
+        assert any(edge['kind'] == 'calls' and edge['evidence']['format'] == 'dex' for edge in direct['dependency_graph']['edges'])
+        assert any(row['network'] for category in ('unknown', 'auth', 'transport') for row in direct['protocol_report'][category])
+        assert direct['protocol_report']['bot_matches']
         projects = temp / 'projects'
         prefix = [exe, 'workspace', '--root', projects]
         project = json.loads(command(prefix + ['create', apk], env))
         project_id = project['id']
         for operation in ('jadx', 'apktool', 'inspect', 'build'):
-            result = json.loads(command(prefix + ['run', project_id, operation], env, timeout=300))
+            result = json.loads(command(prefix + ['run', project_id, operation] + (['--investigate'] if operation == 'inspect' else []), env, timeout=300))
             assert result['runs'][-1]['status'] == 'completed', result
         workspace = projects / project_id
         inspection = next(run for run in result['runs'] if run['operation'] == 'inspect')
         sections = workspace / inspection['sections']
         report = json.loads((workspace / inspection['path'] / 'report.json').read_text(encoding='utf-8'))
-        for stem, key in (('server', 'servers'), ('protocol', 'protocols'), ('source', 'sources')):
+        for stem, key in (('server', 'servers'), ('protocol', 'protocols'), ('source', 'sources'), ('protocol_report', 'protocol_report'), ('dependency_graph', 'dependency_graph')):
             assert json.loads((sections / (stem + '.json')).read_text(encoding='utf-8')) == report[key]
             assert (sections / (stem + '.txt')).is_file()
+        assert report['protocol_report']['meta']['enabled']
+        assert (workspace / inspection['path'] / 'protocol_report.json').is_file()
         assert json.loads((sections / 'index.json').read_text(encoding='utf-8'))['format'] == 'protohunter-sections-v1'
         source = workspace / result['decoded']['main'] / 'smali/com/protohunter/fixture/Probe.smali'
         assert 'CSMajorLoginReq' in source.read_text(encoding='utf-8')

@@ -19,6 +19,7 @@ from . import __version__
 from .formats import dex_strings, descriptors, embedded_descriptors
 from .native import elf_info, il2cpp_header, il2cpp_literals
 from .research import Research, TARGETS
+from .investigation import Investigation, empty_report
 from .coverage import Coverage, sha256_buffer
 from .android import resource_strings
 from .tooling import ToolConfig
@@ -76,7 +77,7 @@ def tools(config=None):
 
 
 class Analyzer:
-    def __init__(self, profile="standard", scan_mode="deep", tool_config=None, progress=None, cancel=None, input_digest=None):
+    def __init__(self, profile="standard", scan_mode="deep", tool_config=None, progress=None, cancel=None, input_digest=None, investigate=False):
         if scan_mode not in {"fast", "deep"}:
             raise ValueError("Unknown scan mode")
         self.scan_mode = scan_mode
@@ -90,6 +91,7 @@ class Analyzer:
         self.skipped_media = 0
         self.small_members = 0
         self.research = Research()
+        self.investigation = Investigation(self.check) if investigate else None
         self.coverage = Coverage()
         self.profile = profile
         self.limits = profile_limits(profile)
@@ -99,6 +101,7 @@ class Analyzer:
         self.decode_mode = "none"
         self.started = time.monotonic()
         self.report = {"version": __version__, "generated_at": datetime.now(timezone.utc).isoformat(),
+                       "protocol_report": empty_report(), "dependency_graph": {"nodes": [], "edges": [], "enabled": False},
                        "input": {}, "endpoints": [], "protocols": [], "protobuf": [], "smali": [],
                        "sources": [], "native": [], "bundles": [], "servers": [], "warnings": [], "files": [], "summary": {},
                        "limitations": [
@@ -109,7 +112,7 @@ class Analyzer:
                            "Native embedded descriptors are bounded carving candidates; completeness is not guaranteed.",
                            "Static evidence is not proof that a server is active or a protocol is used at runtime.",
                            "Encrypted, obfuscated or dynamically assembled values may not be recoverable.",
-                           "DEX mode reads strings only. Actual Smali disassembly requires Apktool.",
+                           "Standard mode reads DEX strings; investigation mode adds bounded direct bytecode references, not full control/data flow. Smali disassembly requires Apktool.",
                            "Generated Protobuf class markers do not reconstruct a complete .proto schema.",
                            "Descriptors preserve field/service structure here, not all options, extensions or source comments.",
                            "Domain and bare-IP matches are candidates and may include non-network constants."]}
@@ -214,6 +217,18 @@ class Analyzer:
                 continue
             self.add("endpoints", value, "ip", location, "medium" if port else "low", host=host,
                      port=int(port) if port else None, private=address.is_private)
+        for match in re.finditer(r'(?<![\w:])(?:\[[0-9a-fA-F:]+\](?::[0-9]{1,5})?|[0-9a-fA-F]*:[0-9a-fA-F:]*:[0-9a-fA-F:]*)(?![\w:])', text):
+            if in_url(match): continue
+            value = match.group(); port = None
+            if value.startswith('['):
+                host, _, tail = value[1:].partition(']')
+                if tail.startswith(':'): port = int(tail[1:])
+            else: host = value
+            try:
+                address = ipaddress.IPv6Address(host)
+                if port is not None and not 1 <= port <= 65535: continue
+            except ValueError: continue
+            self.add("endpoints", value, "ipv6", location, "low", host=str(address), port=port, private=address.is_private)
         for match in DOMAIN_RE.finditer(text):
             if in_url(match):
                 continue
@@ -281,7 +296,10 @@ class Analyzer:
                 row["status"], row["reason"] = "partial", str(exc)
                 self.warn(f"Android resources {name}: {exc}")
         if data[:4] == b"dex\n" or suffix == ".dex":
-            row["methods"].append("DEX_string_table_only_not_instructions")
+            row["methods"].append("DEX_string_table")
+            if self.investigation:
+                row["methods"].append("DEX_bounded_direct_bytecode_references")
+                self.investigation.scan(data, name, dex=True)
             try:
                 for offset, text in dex_strings(data):
                     self.scan_text(text, name, offset=offset)
@@ -311,6 +329,7 @@ class Analyzer:
             if suffix == ".smali":
                 row["methods"].append("Smali_inventory_and_invoke_references")
                 self.scan_smali(text, name)
+                if self.investigation: self.investigation.scan(text, name)
             if suffix == ".proto":
                 package = re.search(r"\bpackage\s+([\w.]+)\s*;", text)
                 self.add("protobuf", name.rsplit("!", 1)[-1], "proto source", {"source": name, "line": 1,
@@ -736,6 +755,10 @@ class Analyzer:
         self.emit("reporting", self.report["input"]["name"])
         self.correlate_servers()
         self.research.finish(self.report)
+        if self.investigation:
+            self.emit("dependency_graph", self.report["input"]["name"])
+            self.report["protocol_report"], self.report["dependency_graph"] = self.investigation.finish(self.report)
+            if self.investigation.partial: self.warn("Investigation graph is partial; consult protocol_report.meta and original coverage.")
         if self.research.truncated:
             self.warn("Research finding limit reached (20000); target results are partial.")
         self.report["coverage"] = self.coverage.entries
@@ -760,5 +783,5 @@ class Analyzer:
 
 
 def analyze(path, decode="none", display_name=None, profile="standard", scan_mode="deep", tool_config=None,
-            progress=None, cancel=None, input_digest=None, extra_inputs=None):
-    return Analyzer(profile, scan_mode, tool_config, progress, cancel, input_digest).run(path, decode, display_name, extra_inputs=extra_inputs)
+            progress=None, cancel=None, input_digest=None, extra_inputs=None, investigate=False):
+    return Analyzer(profile, scan_mode, tool_config, progress, cancel, input_digest, investigate).run(path, decode, display_name, extra_inputs=extra_inputs)

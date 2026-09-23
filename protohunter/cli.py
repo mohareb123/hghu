@@ -21,6 +21,8 @@ def main(argv=None):
     scan.add_argument("--scan-mode", choices=["fast", "deep"], default="deep", help="Fast skips media/fonts/textures; deep scans them")
     scan.add_argument("--profile", choices=["standard", "games"], default="standard", help="Games: 2 GiB inputs, 512 MiB members, native and split-package support")
     scan.add_argument("--decode", choices=["none", "auto", "jadx", "apktool", "both"], default="none")
+    scan.add_argument("--investigate", action="store_true", help="Explainable protocol scores and static dependency graph")
+    scan.add_argument("--bot-project", type=Path, help="Optional bot source directory/ZIP for lexical cross-reference; implies --investigate")
     scan.add_argument("--sections-dir", type=Path, help="Write all sections as TXT+JSON to a NEW directory; automatic alongside -o")
     scan.add_argument("-o", "--output", type=Path, help="Write JSON report (otherwise stdout)")
     web = sub.add_parser("serve", help="Open the local web workbench")
@@ -38,6 +40,7 @@ def main(argv=None):
     show = actions.add_parser("show"); show.add_argument("project")
     run = actions.add_parser("run"); run.add_argument("project")
     run.add_argument("operation", choices=["jadx", "apktool", "il2cpp", "inspect", "build", "sign"])
+    run.add_argument("--investigate", action="store_true")
     run.add_argument("--unit", default="main")
     for flag in ("binary-unit", "binary-member", "metadata-unit", "metadata-member", "keystore", "alias"):
         run.add_argument("--" + flag)
@@ -72,7 +75,7 @@ def main(argv=None):
             elif args.action == "show":
                 result = store.load(args.project)
             else:
-                options = {}
+                options = {"investigate": args.investigate} if args.operation == "inspect" else {}
                 if args.operation == "il2cpp":
                     options = {key: {"unit": getattr(args, key + "_unit"), "member": getattr(args, key + "_member")}
                                for key in ("binary", "metadata")}
@@ -82,7 +85,12 @@ def main(argv=None):
                 result = store.run(args.project, args.operation, args.unit, config=config, **options)
             print(json.dumps(result, ensure_ascii=True, indent=2))
         else:
-            result = analyze(args.input, args.decode, profile=args.profile, scan_mode=args.scan_mode, tool_config=config)
+            result = analyze(args.input, args.decode, profile=args.profile, scan_mode=args.scan_mode, tool_config=config, investigate=args.investigate or bool(args.bot_project))
+            if args.bot_project:
+                from .botmatch import read_project, compare
+                bot_files, omitted = read_project(args.bot_project)
+                result["protocol_report"].update(compare(result["protocol_report"], bot_files))
+                result["protocol_report"]["bot_comparison"]["omitted_non_source_files"] = omitted
             encoded = json.dumps(result, ensure_ascii=True, indent=2)
             sections_dir = args.sections_dir
             if args.output and args.output.resolve() == args.input.resolve():

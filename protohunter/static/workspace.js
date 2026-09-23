@@ -105,6 +105,7 @@
   document.querySelectorAll('[data-operation]').forEach(button=>button.addEventListener('click',()=>action(async()=>{
     if(dirty())throw new Error('احفظ تعديلات المحرر أو أعد فتح الملف قبل تشغيل المحركات.');
     const operation=button.dataset.operation,unit=byId('ws-unit').value;let options={};
+    if(operation==='inspect')options.investigate=byId('investigate-mode').value==='true';
     if(operation==='apktool' && project.decoded[unit] && !window.confirm('سيتم فك نسخة جديدة من الأصل وجعلها نسخة التعديل الحالية. النسخة المعدلة القديمة ستبقى محفوظة في سجل التشغيل. متابعة؟'))return;
     if(operation==='il2cpp'){
       if(!byId('ws-binary').value || !byId('ws-metadata').value)throw new Error('اكتشف ملفات Unity واختر المكتبة والـmetadata أولًا.');
