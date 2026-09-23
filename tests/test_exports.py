@@ -28,14 +28,17 @@ class ExportTests(unittest.TestCase):
             self.assertEqual(meta['version'], self.report['version'])
             self.assertIn('server.json', [s['json'] for s in index['sections']])
             self.assertIn(self.report['servers'][0]['host'], (root / 'server.txt').read_text(encoding='utf-8'))
-            self.assertIn(self.report['sources'][0]['content'], (root / 'source.txt').read_text(encoding='utf-8'))
+            self.assertIn(self.report['sources'][0]['content'], (root / 'source.txt').read_bytes().decode('utf-8'))
 
     def test_utf8_empty_and_research_stage_exports(self):
         self.report['input']['name'] = 'تطبيق.apk'
         self.report['servers'] = []
+        self.report['sources'] = [{'content':'سطر أول\r\nسطر ثانٍ\r\n'}]
         self.report['research'] = [{'stage':'login','target':'اسم','source':'base.apk!مثال.smali','line':7,'offset':10,'confidence':'high'}]
         result = io.BytesIO(); export_zip(self.report, result)
         with zipfile.ZipFile(result) as archive:
+            self.assertIn(self.report['sources'][0]['content'], archive.read('source.txt').decode('utf-8'))
+            self.assertEqual(json.loads(archive.read('source.json')), self.report['sources'])
             self.assertEqual(json.loads(archive.read('server.json')), [])
             self.assertIn('لا توجد سجلات', archive.read('server.txt').decode('utf-8'))
             self.assertEqual(json.loads(archive.read('research_stages/login.json')), self.report['research'])
